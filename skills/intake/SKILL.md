@@ -1,6 +1,6 @@
 ---
 name: intake
-description: Convert human feature requests into Bead DAGs for the switchboard agent router. Creates parent epic + child beads with chained dependencies. Never implements code directly.
+description: Convert feature requests into Bead DAGs for the switchboard daemon. Creates an epic + pipeline beads with chained dependencies. Never implements code directly.
 ---
 
 # Intake Skill
@@ -9,37 +9,36 @@ Convert a human feature request into a structured Bead DAG that the switchboard 
 
 ## When to Use
 
-The human describes a feature they want built. You create the bead workflow.
+The human describes work they want done. You create the bead workflow.
 
 ## Process
 
 ### 1. Read project config
 
-Read `project.yaml` in the workspace root to discover:
+Read `project.yaml` in the current workspace to discover:
 - Available repos (names, paths, verify commands)
-- Pipeline steps (which agents to use)
+- Available pipelines (named sequences of agents)
 
 ### 2. Clarify scope
 
 Ask the human:
-- What is the feature? (one sentence)
+- What is the work? (one sentence)
+- Which pipeline? (list available pipelines from project.yaml)
 - Which repo? (list available repos from project.yaml)
-- If both repos are needed, you will create **separate DAGs per repo**
+- If multiple repos are needed, create **separate DAGs per repo**
 - Acceptance criteria (what does "done" look like?)
 
 If the human gave enough detail, skip clarification.
 
-### 3. Determine repo per bead
+### 3. Determine the project name
 
-Every bead MUST target exactly one repo. Never set `repo=both`.
+Read `project.yaml` to find the project name. This goes into the `project:` label on every bead so the switchboard daemon knows which project config to use.
 
-**Single-repo feature:** All beads target the same repo.
-
-**Cross-repo feature:** Create two separate DAGs — one per repo. Each DAG has its own epic, its own steps, and its own feature branch. The two DAGs are independent.
+The project name comes from the workspace directory name or can be set explicitly in `project.yaml`.
 
 ### 4. Create feature branch
 
-Create the feature branch in each target repo and **leave it checked out** — the router creates worktrees from HEAD:
+Create the feature branch in each target repo and **leave it checked out**:
 
 ```bash
 cd <repo-path> && git checkout -b feature/<slug> main
@@ -47,26 +46,29 @@ cd <repo-path> && git checkout -b feature/<slug> main
 
 ### 5. Build the graph JSON and create the DAG
 
-**CRITICAL**: Use `bd create --graph` to create all beads atomically with complete descriptions, labels, and dependencies in a single command. Do NOT create beads individually — the router picks them up immediately.
+**CRITICAL**: Use `bd create --graph` to create all beads atomically.
 
-Read the `pipeline` list from `project.yaml` to determine which agents to include. Build the graph JSON with only those agents.
+Read the selected pipeline from `project.yaml` to determine which agents to include. Build the graph JSON with only those agents, chained in order.
 
-For each repo in `project.yaml`, use its `verify` command in the verify bead description.
+Every bead MUST have these labels:
+- `agent:<agent-name>` — which agent handles it
+- `repo:<repo-name>` — which repo to work in
+- `project:<project-name>` — which project this belongs to
 
 ```json
 {
   "nodes": [
     {
       "key": "epic",
-      "title": "<feature name>",
+      "title": "<work description>",
       "type": "epic",
-      "description": "<feature overview and acceptance criteria>"
+      "description": "<overview and acceptance criteria>"
     },
     {
       "key": "<agent>",
-      "title": "<Agent>: <feature name>",
+      "title": "<Agent>: <work description>",
       "type": "task",
-      "labels": ["agent:<agent>", "repo:<repo-name>"],
+      "labels": ["agent:<agent>", "repo:<repo-name>", "project:<project-name>"],
       "description": "<ENRICHED: specific context for this agent>"
     }
   ],
@@ -88,14 +90,7 @@ bd create --graph /tmp/bead-graph.json
 
 ### 6. Verify descriptions are complete
 
-Each bead description MUST include feature-specific context (not generic). Check:
-- **TDD**: Specific test scenarios, file paths, scope
-- **Interface**: Specific methods/types to design, patterns to follow
-- **Tests**: Which test files to create, test framework, specific test cases
-- **Development**: Specific fixes/implementations, files to modify, guidelines
-- **Integrate**: Standard (router auto-merges; integrate only handles conflicts)
-- **Verify**: Use the verify command from project.yaml for the target repo
-- **Review**: What to review, acceptance criteria to check
+Each bead description MUST include work-specific context. For verify beads, use the verify command from the repo's entry in `project.yaml`.
 
 ### 7. Confirm with human
 
@@ -107,31 +102,28 @@ bd ready
 Tell the human:
 - Feature branch: `feature/<slug>`
 - Repo: `<repo>`
+- Pipeline: `<pipeline-name>` with its steps
 - Epic bead: `<epic-id>`
-- Steps: list of pipeline agents
-- The feature branch must be checked out in the repo
-- The switchboard (if already running) will pick up work automatically
+- The switchboard daemon will pick up work automatically
 
 ## Rules
 
-- **NEVER implement feature code directly**
-- **NEVER use `bd mol pour`** — it creates beads with generic descriptions
-- **NEVER create beads then update them** — the router picks up beads immediately
-- Every bead MUST target exactly one repo
-- For cross-repo features, create separate DAGs per repo
-- Create pipeline steps in order with chained dependencies
-- Set `agent:<name>` and `repo:<repo>` labels on every child bead
+- **NEVER implement code directly**
+- **NEVER create beads then update them** — the daemon picks up beads immediately
+- Every bead MUST have `agent:`, `repo:`, and `project:` labels
+- For multi-repo work, create separate DAGs per repo
+- Pipeline steps are chained in the order defined in `project.yaml`
 - **All descriptions must be complete at creation time**
-- Read `project.yaml` for available repos and their verify commands
+- Read `project.yaml` for available repos, pipelines, and verify commands
 
 ## Output
 
 ```
-Created feature DAG:
-  Epic: <epic-id> — <name>
+Created DAG:
+  Epic: <epic-id> — <description>
+  Project: <project-name>
   Repo: <repo>
-  Branch: feature/<slug>
-  Steps: <pipeline steps from project.yaml>
+  Pipeline: <pipeline-name> → <step1> → <step2> → ...
 
-  The switchboard will pick up work automatically.
+  The switchboard daemon will pick up work automatically.
 ```

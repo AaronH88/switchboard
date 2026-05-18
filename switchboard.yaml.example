@@ -1,0 +1,10 @@
+# switchboard.yaml — Central project registry
+# Lives in the switchboard install directory. Lists all projects this daemon manages.
+
+projects:
+  # my-webapp:
+  #   path: /home/user/my-webapp
+  # cli-tool:
+  #   path: /home/user/cli-tool
+  # mobile-app:
+  #   path: /home/user/mobile-app

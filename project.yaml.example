@@ -1,7 +1,8 @@
 # project.yaml — Switchboard project configuration
-# Copy this to your workspace root as project.yaml and customize.
+# Lives in each project's workspace root. Defines repos, pipelines, and coding tools.
 
-# Repos in your workspace. Each entry maps a name to a path and verify command.
+# Repos in this project.
+# Paths can be absolute or relative to this project's workspace root.
 repos:
   - name: backend
     path: ./backend
@@ -10,17 +11,29 @@ repos:
     path: ./frontend
     verify: "npm install && npm test && npm run lint"
 
-# Pipeline steps — which agents run and in what order.
-# Remove any you don't need. The intake skill builds DAGs from this list.
-# Available agents: tdd, interface, tests, development, integrate, verify, review
-pipeline:
-  - tdd
-  - interface
-  - tests
-  - development
-  - integrate
-  - verify
-  - review
+# Named pipelines — each is a sequence of agents.
+# /intake asks which pipeline to use when creating a feature DAG.
+# Available built-in agents: tdd, interface, tests, development, integrate, verify, review
+pipelines:
+  dev:                                  # Full TDD development
+    - tdd
+    - interface
+    - tests
+    - development
+    - verify
+    - review
+
+  quick-fix:                            # Fast bugfix
+    - development
+    - verify
+
+  review:                               # Review a teammate's PR
+    - review
+
+  test-only:                            # Just add test coverage
+    - tdd
+    - tests
+    - verify
 
 # Coding tools — define how each tool is invoked.
 # Template variables: {prompt_file} (path to prompt), {prompt} (inline text), {worktree} (path)
@@ -31,8 +44,6 @@ coding_tools:
   #   command: ["goose", "run", "--text", "{prompt_file}"]
   # aider:
   #   command: ["aider", "--message-file", "{prompt_file}", "--yes-always"]
-  # codex:
-  #   command: ["codex", "--prompt", "{prompt_file}", "--full-auto"]
 
 # Default tool for all agents
 default_tool: claude
@@ -41,8 +52,3 @@ default_tool: claude
 # agent_tools:
 #   tests: goose
 #   review: aider
-
-# Router settings (optional, overrides agent_router/config.yaml)
-settings:
-  poll_interval: 10
-  max_workers: 3

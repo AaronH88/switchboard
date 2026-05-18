@@ -1,27 +1,43 @@
 #!/bin/bash
-# Switchboard setup — run this from your workspace root.
-# Usage: ./switchboard/setup.sh
+# Switchboard setup — run from a project workspace to connect it to switchboard.
+#
+# Usage:
+#   /path/to/switchboard/setup.sh                    # Set up current directory as a project
+#   /path/to/switchboard/setup.sh --project my-app   # Set up with explicit project name
 
 set -e
 
 SWITCHBOARD_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKSPACE="$(pwd)"
+PROJECT_DIR="$(pwd)"
+PROJECT_NAME=""
 
-if [ "$SWITCHBOARD_DIR" = "$WORKSPACE" ]; then
-  echo "Error: Run this script from your workspace root, not from inside switchboard/"
-  echo "Usage: ./switchboard/setup.sh"
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --project) PROJECT_NAME="$2"; shift 2 ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+if [ "$SWITCHBOARD_DIR" = "$PROJECT_DIR" ]; then
+  echo "Error: Run this from your project workspace, not from inside switchboard/"
+  echo "Usage: /path/to/switchboard/setup.sh"
   exit 1
 fi
 
-echo "Setting up Switchboard in: $WORKSPACE"
-echo "Switchboard location: $SWITCHBOARD_DIR"
+if [ -z "$PROJECT_NAME" ]; then
+  PROJECT_NAME="$(basename "$PROJECT_DIR")"
+fi
 
-# Symlink pipeline agents into .claude/agents/
-mkdir -p "$WORKSPACE/.claude/agents"
+echo "Setting up Switchboard for project: $PROJECT_NAME"
+echo "  Project: $PROJECT_DIR"
+echo "  Switchboard: $SWITCHBOARD_DIR"
+
+# Symlink pipeline agents into project's .claude/agents/
+mkdir -p "$PROJECT_DIR/.claude/agents"
 for agent in "$SWITCHBOARD_DIR/agents/"*.md; do
   name="$(basename "$agent")"
-  if [ ! -e "$WORKSPACE/.claude/agents/$name" ]; then
-    ln -sf "$agent" "$WORKSPACE/.claude/agents/$name"
+  if [ ! -e "$PROJECT_DIR/.claude/agents/$name" ]; then
+    ln -sf "$agent" "$PROJECT_DIR/.claude/agents/$name"
     echo "  Linked agent: $name"
   else
     echo "  Skipped agent (exists): $name"
@@ -29,37 +45,45 @@ for agent in "$SWITCHBOARD_DIR/agents/"*.md; do
 done
 
 # Symlink intake skill
-mkdir -p "$WORKSPACE/.claude/skills/intake"
-if [ ! -e "$WORKSPACE/.claude/skills/intake/SKILL.md" ]; then
-  ln -sf "$SWITCHBOARD_DIR/skills/intake/SKILL.md" "$WORKSPACE/.claude/skills/intake/SKILL.md"
+mkdir -p "$PROJECT_DIR/.claude/skills/intake"
+if [ ! -e "$PROJECT_DIR/.claude/skills/intake/SKILL.md" ]; then
+  ln -sf "$SWITCHBOARD_DIR/skills/intake/SKILL.md" "$PROJECT_DIR/.claude/skills/intake/SKILL.md"
   echo "  Linked skill: intake"
 else
   echo "  Skipped skill (exists): intake"
 fi
 
-# Copy beads formula (don't overwrite)
-mkdir -p "$WORKSPACE/.beads/formulas"
-cp -n "$SWITCHBOARD_DIR/formulas/feature.formula.json" "$WORKSPACE/.beads/formulas/" 2>/dev/null && \
-  echo "  Copied formula: feature.formula.json" || \
-  echo "  Skipped formula (exists): feature.formula.json"
-
 # Copy project.yaml template (don't overwrite)
-if [ ! -e "$WORKSPACE/project.yaml" ]; then
-  cp "$SWITCHBOARD_DIR/project.yaml.example" "$WORKSPACE/project.yaml"
-  echo "  Created project.yaml — edit this to configure your repos"
+if [ ! -e "$PROJECT_DIR/project.yaml" ]; then
+  cp "$SWITCHBOARD_DIR/project.yaml.example" "$PROJECT_DIR/project.yaml"
+  echo "  Created project.yaml — edit this to configure repos and pipelines"
 else
   echo "  Skipped project.yaml (exists)"
 fi
 
-# Init beads if needed
-if [ ! -d "$WORKSPACE/.beads/embeddeddolt" ]; then
-  (cd "$WORKSPACE" && bd init 2>/dev/null) && \
-    echo "  Initialized beads database" || \
+# Register project in switchboard.yaml
+SB_CONFIG="$SWITCHBOARD_DIR/switchboard.yaml"
+if [ ! -e "$SB_CONFIG" ]; then
+  cp "$SWITCHBOARD_DIR/switchboard.yaml.example" "$SB_CONFIG"
+fi
+
+if grep -q "^  $PROJECT_NAME:" "$SB_CONFIG" 2>/dev/null; then
+  echo "  Project '$PROJECT_NAME' already registered in switchboard.yaml"
+else
+  echo "  $PROJECT_NAME:" >> "$SB_CONFIG"
+  echo "    path: $PROJECT_DIR" >> "$SB_CONFIG"
+  echo "  Registered project '$PROJECT_NAME' in switchboard.yaml"
+fi
+
+# Init beads in switchboard dir if needed
+if [ ! -d "$SWITCHBOARD_DIR/.beads/embeddeddolt" ]; then
+  (cd "$SWITCHBOARD_DIR" && bd init 2>/dev/null) && \
+    echo "  Initialized shared beads database" || \
     echo "  Warning: bd init failed — install beads CLI: https://github.com/gastownhall/beads"
 fi
 
 echo ""
 echo "Setup complete. Next steps:"
-echo "  1. Edit project.yaml to configure your repos and pipeline"
-echo "  2. Start the router: python switchboard/agent_router/run.py"
-echo "  3. Use /intake to create feature DAGs"
+echo "  1. Edit $PROJECT_DIR/project.yaml — configure repos and pipelines"
+echo "  2. Start the daemon: python $SWITCHBOARD_DIR/agent_router/run.py"
+echo "  3. Use /intake in Claude Code to create work DAGs"

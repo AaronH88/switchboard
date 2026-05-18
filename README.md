@@ -1,29 +1,30 @@
 # Switchboard
 
-AI agent pipeline that orchestrates Claude Code workers through a TDD workflow. Human describes a feature, switchboard creates a task DAG and runs specialized agents (TDD → Interface → Tests → Development → Verify → Review) in isolated git worktrees.
+AI agent pipeline that orchestrates coding tools through customizable workflows. One daemon manages multiple projects. Each project defines its own repos, pipelines, and tool preferences.
 
 ## How it works
 
 ```
-Human → /intake "Add auth middleware"
-         ↓
-  Creates bead DAG (7 phases)
-         ↓
-  Switchboard daemon polls for ready beads
-         ↓
+Human (in project-a) → /intake "Fix the auth bug"
+                         ↓
+  Asks: which pipeline? which repo?
+                         ↓
+  Creates bead DAG → shared switchboard DB
+                         ↓
+  Switchboard daemon picks up beads
+                         ↓
   For each bead:
-    1. Create git worktree (isolated branch)
-    2. Launch Claude Code with agent prompt + bead context
-    3. Agent reads code, writes files, commits
-    4. Merge agent branch into feature branch
-    5. Next agent picks up (sees previous agents' work)
-         ↓
-  Feature branch has complete implementation
+    1. Resolve project + repo from labels
+    2. Create git worktree in the repo
+    3. Launch coding tool (Claude, Goose, Aider, etc.)
+    4. Agent works, commits to branch
+    5. Auto-merge into feature branch
+    6. Next agent picks up (sees previous work)
 ```
 
 ## Prerequisites
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (or another coding tool)
 - [beads CLI](https://github.com/gastownhall/beads) (`bd`)
 - Git
 - Python 3.10+ with PyYAML (`pip install pyyaml`)
@@ -31,55 +32,114 @@ Human → /intake "Add auth middleware"
 ## Quick start
 
 ```bash
-# 1. Clone into your workspace
-cd my-workspace
-git clone <switchboard-repo-url> switchboard
+# 1. Clone switchboard
+git clone https://github.com/AaronH88/switchboard.git ~/.switchboard
 
-# 2. Run setup
-./switchboard/setup.sh
+# 2. Set up a project
+cd ~/my-project
+~/.switchboard/setup.sh
 
-# 3. Configure your project
-vi project.yaml   # set your repos and verify commands
+# 3. Edit project config
+vi project.yaml   # set repos, pipelines, tools
 
-# 4. Start the router
-python switchboard/agent_router/run.py
+# 4. Start the daemon (manages all registered projects)
+python ~/.switchboard/agent_router/run.py
 
-# 5. Create a feature (in a Claude Code session)
+# 5. Create work (in a Claude Code session inside your project)
 /intake "Add user authentication"
+```
+
+## Architecture
+
+```
+~/.switchboard/                      # Central install (one per machine)
+├── agent_router/run.py              # Single daemon for all projects
+├── switchboard.yaml                 # Project registry
+├── .beads/                          # Shared beads DB
+├── agents/                          # Agent building blocks
+├── skills/intake/                   # /intake skill (symlinked into projects)
+├── artifacts/                       # Logs organized by bead
+└── formulas/                        # Workflow templates
+
+~/project-a/                         # Your project
+├── .claude/agents/ → symlinks       # Agents from switchboard
+├── .claude/skills/intake/ → symlink # Intake skill from switchboard
+├── project.yaml                     # Project-specific config
+└── src/                             # Your code
+
+~/project-b/                         # Another project
+├── .claude/agents/ → symlinks
+├── project.yaml
+└── ...
 ```
 
 ## Configuration
 
-### project.yaml
+### switchboard.yaml (central)
 
-Created by `setup.sh` in your workspace root. Defines your repos and pipeline:
+Lists all projects the daemon manages:
+
+```yaml
+projects:
+  my-webapp:
+    path: /home/user/my-webapp
+  cli-tool:
+    path: /home/user/cli-tool
+  mobile-app:
+    path: /home/user/mobile-app
+```
+
+### project.yaml (per-project)
+
+Each project configures its repos, pipelines, and coding tools:
 
 ```yaml
 repos:
-  - name: backend
-    path: ./backend
+  - name: api
+    path: ./api
     verify: "make test && make lint"
   - name: frontend
     path: ./frontend
     verify: "npm test && npm run lint"
 
-pipeline:
-  - tdd          # Test-first specifications
-  - interface    # API/type design
-  - tests        # Write test code (red phase)
-  - development  # Implement code (green phase)
-  - integrate    # Auto-merged by router; handles conflicts
-  - verify       # Run quality gates
-  - review       # Code review
+pipelines:
+  dev: [tdd, interface, tests, development, verify, review]
+  quick-fix: [development, verify]
+  review: [review]
+  docs: [docs-writer, verify]
+  test-only: [tdd, tests, verify]
 
-settings:
-  poll_interval: 10   # seconds between polls
-  max_workers: 3      # concurrent agents
+coding_tools:
+  claude:
+    command: ["claude", "-p", "{prompt_file}", "--output-format", "text", "--dangerously-skip-permissions"]
+  goose:
+    command: ["goose", "run", "--text", "{prompt_file}"]
+
+default_tool: claude
+
+agent_tools:
+  tests: goose
+  review: claude
 ```
+
+### Named pipelines
+
+Pipelines are named sequences of agents. Different operations use different pipelines:
+
+```yaml
+pipelines:
+  dev:        [tdd, interface, tests, development, verify, review]  # Full TDD
+  quick-fix:  [development, verify]                                  # Fast bugfix
+  review:     [review]                                               # PR review
+  test-only:  [tdd, tests, verify]                                   # Add coverage
+  docs:       [docs-writer, verify]                                  # Documentation
+```
+
+When you run `/intake`, it asks which pipeline to use.
 
 ### Configuring coding tools
 
-By default, all agents use Claude Code. You can use different tools for different agents:
+Different tools for different agents:
 
 ```yaml
 coding_tools:
@@ -92,142 +152,85 @@ coding_tools:
 
 default_tool: claude
 
-# Use goose for tests, aider for review, claude for everything else
 agent_tools:
-  tests: goose
-  review: aider
+  tests: goose      # Use goose for writing tests
+  review: aider     # Use aider for code review
 ```
 
-Template variables in command arrays:
-- `{prompt_file}` — path to file containing the full prompt (recommended)
-- `{prompt}` — inline prompt text (may hit shell limits on large prompts)
+Template variables:
+- `{prompt_file}` — path to file containing the prompt (recommended)
+- `{prompt}` — inline prompt text
 - `{worktree}` — path to the agent's worktree
 
-### Customizing the pipeline
-
-Remove agents you don't need:
-
-```yaml
-# Minimal: just write code and verify
-pipeline:
-  - development
-  - verify
-```
-
-```yaml
-# No TDD: skip specs, go straight to tests
-pipeline:
-  - tests
-  - development
-  - verify
-  - review
-```
-
-## Agents
+## Built-in agents
 
 | Agent | Role | Produces |
 |-------|------|----------|
 | `tdd` | Design test specs and acceptance criteria | Spec documents |
-| `interface` | Design types, APIs, component signatures | Type stubs, interface files |
+| `interface` | Design types, APIs, component signatures | Type stubs |
 | `tests` | Write runnable test code (red phase) | Test files |
-| `development` | Implement code to make tests pass | Implementation code |
-| `integrate` | Resolve merge conflicts (only if auto-merge fails) | Conflict resolutions |
+| `development` | Implement code to make tests pass | Implementation |
+| `integrate` | Resolve merge conflicts (auto-merge handles the rest) | Conflict resolutions |
 | `verify` | Run lint, typecheck, test suite | Pass/fail report |
 | `review` | Code review the feature branch | Review findings |
 
 ### Adding custom agents
 
-Create a `.md` file in `agents/` with frontmatter:
+Create a `.md` file in `agents/`:
 
 ```markdown
 ---
-name: my-agent
-description: What this agent does
-model: sonnet
+name: docs-writer
+description: Write project documentation
 ---
 
-You are the My-Agent. You do X.
-
-## Context
-Your assignment details are provided below under "Assignment Context".
-Do NOT use `bd` commands.
-
-## What You Do
-1. Read your assignment context
-2. Do the work
-3. Commit your files
-
-## Completion
-Commit your work and exit.
+You are the Documentation agent. ...
 ```
 
-Then add `my-agent` to your `pipeline` in `project.yaml`.
-
-## Architecture
-
-```
-switchboard/
-├── agent_router/          # Daemon that polls beads and launches workers
-│   ├── run.py             # Main loop: poll → claim → worktree → launch → merge
-│   ├── config.yaml        # Default settings
-│   └── helpers/
-│       ├── worker.py      # Claude Code process management + prompt building
-│       └── worktree.py    # Git worktree lifecycle + merge logic
-├── agents/                # Agent definitions (symlinked to .claude/agents/)
-├── skills/intake/         # /intake slash command for DAG creation
-├── formulas/              # Bead workflow templates
-└── setup.sh               # Bootstrap script
-```
-
-### Merge strategy
-
-Each agent works on its own branch (`agents/{bead-id}-{agent}`). When the agent completes:
-
-1. Router tries `git merge` into the feature branch
-2. **Success** → branch merged, next agent sees the work
-3. **Conflict** → `git merge --abort`, creates an integrate bead for manual resolution
-
-### Worktree lifecycle
-
-1. `git worktree add` creates an isolated checkout from the feature branch
-2. Agent runs `claude -p` in the worktree directory
-3. On completion, worktree is removed and branch is cleaned up
-4. If creation fails (stale state), router checks if another agent is active before cleaning up
+Then use it in a pipeline: `docs: [docs-writer, verify]`
 
 ## Monitoring
 
 ```bash
-# Watch the router log
-tail -f artifacts/switchboard.log
+# Daemon log
+tail -f ~/.switchboard/artifacts/switchboard.log
 
-# See a specific agent's output
-tail -f artifacts/logs/<bead-id>/stdout.log
+# Specific agent output
+tail -f ~/.switchboard/artifacts/logs/<bead-id>/stdout.log
 
-# Check what was sent to an agent
-cat artifacts/logs/<bead-id>/prompt.txt
+# What was sent to an agent
+cat ~/.switchboard/artifacts/logs/<bead-id>/prompt.txt
 
-# See agent commits on the feature branch
+# Agent commits on the feature branch
 cd <repo> && git log --oneline feature/<slug>
 
-# Check bead status
-bd list --parent <epic-id>
+# Bead status
+cd ~/.switchboard && bd list
+```
+
+## Adding a new project
+
+```bash
+cd ~/new-project
+~/.switchboard/setup.sh --project new-project
+vi project.yaml  # configure repos, pipelines, tools
+# Daemon picks it up automatically on next poll
 ```
 
 ## Troubleshooting
 
 ### Router crashes on worktree creation
-Stale worktree from a previous killed run. The router retries automatically by cleaning up orphaned directories. If it persists:
+Stale state from a previous killed run. The router retries automatically. If it persists:
 ```bash
-cd <repo> && git worktree prune && git branch -D agents/<branch-name>
+cd <repo> && git worktree prune && git branch -D agents/<branch>
 ```
 
 ### Agent produces no commits
-Check `artifacts/logs/<bead-id>/stdout.log` for the agent's output. Common causes:
-- Agent didn't understand the task (improve bead description)
+Check `~/.switchboard/artifacts/logs/<bead-id>/stdout.log`. Common causes:
+- Bead description too vague (improve it)
 - Agent hit an error (check `stderr.log`)
 
 ### Beads stuck in progress
-Router was killed mid-run. Reset them:
 ```bash
-bd update <bead-id> --status=open --assignee=""
+cd ~/.switchboard && bd update <bead-id> --status=open --assignee=""
 ```
