@@ -1,0 +1,48 @@
+# project.yaml — Switchboard project configuration
+# Copy this to your workspace root as project.yaml and customize.
+
+# Repos in your workspace. Each entry maps a name to a path and verify command.
+repos:
+  - name: backend
+    path: ./backend
+    verify: "make test && make lint && make typecheck"
+  - name: frontend
+    path: ./frontend
+    verify: "npm install && npm test && npm run lint"
+
+# Pipeline steps — which agents run and in what order.
+# Remove any you don't need. The intake skill builds DAGs from this list.
+# Available agents: tdd, interface, tests, development, integrate, verify, review
+pipeline:
+  - tdd
+  - interface
+  - tests
+  - development
+  - integrate
+  - verify
+  - review
+
+# Coding tools — define how each tool is invoked.
+# Template variables: {prompt_file} (path to prompt), {prompt} (inline text), {worktree} (path)
+coding_tools:
+  claude:
+    command: ["claude", "-p", "{prompt_file}", "--output-format", "text", "--dangerously-skip-permissions"]
+  # goose:
+  #   command: ["goose", "run", "--text", "{prompt_file}"]
+  # aider:
+  #   command: ["aider", "--message-file", "{prompt_file}", "--yes-always"]
+  # codex:
+  #   command: ["codex", "--prompt", "{prompt_file}", "--full-auto"]
+
+# Default tool for all agents
+default_tool: claude
+
+# Per-agent tool overrides (optional)
+# agent_tools:
+#   tests: goose
+#   review: aider
+
+# Router settings (optional, overrides agent_router/config.yaml)
+settings:
+  poll_interval: 10
+  max_workers: 3

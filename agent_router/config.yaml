@@ -1,0 +1,5 @@
+poll_interval: 10
+max_workers: 3
+artifacts_dir: artifacts
+worktrees_dir: worktrees
+agents_dir: .claude/agents

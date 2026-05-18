@@ -1,0 +1,69 @@
+{
+  "formula": "feature",
+  "description": "Standard feature workflow: TDD → Interface → Tests → Development → Integrate → Verify → Review",
+  "type": "workflow",
+  "variables": {
+    "name": {
+      "description": "Feature name",
+      "required": true
+    },
+    "repo": {
+      "description": "Target repository (nexus or nexus-ui)",
+      "default": "nexus"
+    },
+    "feature_branch": {
+      "description": "Feature branch name",
+      "required": true
+    }
+  },
+  "steps": [
+    {
+      "id": "tdd",
+      "title": "TDD: {{name}}",
+      "type": "task",
+      "description": "Design test-first specifications and acceptance criteria for: {{name}}"
+    },
+    {
+      "id": "interface",
+      "title": "Interface: {{name}}",
+      "type": "task",
+      "description": "Design APIs, types, and component signatures for: {{name}}",
+      "depends_on": ["tdd"]
+    },
+    {
+      "id": "tests",
+      "title": "Tests: {{name}}",
+      "type": "task",
+      "description": "Write test code from interface definitions for: {{name}}",
+      "depends_on": ["interface"]
+    },
+    {
+      "id": "development",
+      "title": "Development: {{name}}",
+      "type": "task",
+      "description": "Implement feature code to make tests pass for: {{name}}",
+      "depends_on": ["tests"]
+    },
+    {
+      "id": "integrate",
+      "title": "Integrate: {{name}}",
+      "type": "task",
+      "description": "Merge worker branches into feature branch for: {{name}}",
+      "depends_on": ["development"]
+    },
+    {
+      "id": "verify",
+      "title": "Verify: {{name}}",
+      "type": "task",
+      "description": "Run full verification suite on integrated feature branch for: {{name}}",
+      "depends_on": ["integrate"]
+    },
+    {
+      "id": "review",
+      "title": "Review: {{name}}",
+      "type": "task",
+      "description": "Code review integrated feature branch for: {{name}}",
+      "depends_on": ["verify"]
+    }
+  ]
+}
