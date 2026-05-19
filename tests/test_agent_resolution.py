@@ -194,3 +194,45 @@ def test_resolve_agent_file_project_not_found():
         agent_file = _resolve_agent_file("development", "nonexistent_project", registry, str(default_agents_dir))
 
         assert agent_file == default_agents_dir / "development.md"
+
+
+def test_full_flow_project_agent_to_prompt(tmp_path):
+    """Integration test: project config → agent resolution → prompt generation."""
+    # 1. Create project structure
+    project_path = tmp_path / "my-project"
+    project_path.mkdir()
+    agents_dir = project_path / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    # 2. Create a custom agent
+    custom_agent = agents_dir / "custom-lint.md"
+    custom_agent.write_text("---\nname: custom-lint\ndescription: Custom linter\n---\n\nYou are a custom linting agent.\n")
+
+    # 3. Create project.yaml
+    import yaml
+    config = {"repos": [{"name": "app", "path": "./app"}], "agents_dir": ".claude/agents"}
+    (project_path / "project.yaml").write_text(yaml.safe_dump(config))
+
+    # 4. Build registry
+    sb_config = {"projects": {"my-project": {"path": str(project_path)}}}
+    registry = _build_project_registry(sb_config)
+
+    # 5. Resolve custom agent → should find project-local
+    agent_file = _resolve_agent_file("custom-lint", "my-project", registry, "/nonexistent/builtin")
+    assert agent_file is not None
+    assert agent_file == custom_agent
+
+    # 6. Resolve built-in agent → should fall back
+    # Create a built-in agents dir
+    builtin_dir = tmp_path / "builtin"
+    builtin_dir.mkdir()
+    (builtin_dir / "verify.md").write_text("---\nname: verify\n---\n\nBuilt-in verify agent.\n")
+    builtin_file = _resolve_agent_file("verify", "my-project", registry, str(builtin_dir))
+    assert builtin_file == builtin_dir / "verify.md"
+
+    # 7. Build prompt with custom agent → should include its content
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'agent_router', 'helpers'))
+    from worker import build_prompt
+    prompt = build_prompt("custom-lint", "test-bead", "/tmp/wt", agent_file)
+    assert "You are a custom linting agent." in prompt
+    assert "name: custom-lint" not in prompt  # frontmatter stripped

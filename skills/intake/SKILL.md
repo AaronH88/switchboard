@@ -25,6 +25,7 @@ Ask the human:
 - What is the work? (one sentence)
 - Which pipeline? (list available pipelines from project.yaml)
 - Which repo? (list available repos from project.yaml)
+- List any project-specific agents: read `agents_dir` from `project.yaml`, then list `.md` files in that directory that are NOT symlinks (symlinks are built-in agents from switchboard). Tell the human what custom agents are available so they can use them in pipelines.
 - If multiple repos are needed, create **separate DAGs per repo**
 - Acceptance criteria (what does "done" look like?)
 

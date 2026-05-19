@@ -44,6 +44,8 @@ for agent in "$SWITCHBOARD_DIR/agents/"*.md; do
   fi
 done
 
+echo "  Tip: Add project-specific agents to .claude/agents/ and set 'agents_dir: .claude/agents' in project.yaml"
+
 # Symlink intake skill
 mkdir -p "$PROJECT_DIR/.claude/skills/intake"
 if [ ! -e "$PROJECT_DIR/.claude/skills/intake/SKILL.md" ]; then
