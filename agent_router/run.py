@@ -66,6 +66,9 @@ def _build_project_registry(sb_config: dict) -> dict:
                 "path": repo_path,
                 "verify": repo.get("verify", ""),
             }
+        agents_dir = local_config.get("agents_dir")
+        if agents_dir and not os.path.isabs(agents_dir):
+            agents_dir = os.path.join(project_path, agents_dir)
         registry[name] = {
             "path": project_path,
             "repos": repos_by_name,
@@ -73,6 +76,7 @@ def _build_project_registry(sb_config: dict) -> dict:
             "default_tool": local_config.get("default_tool", "claude"),
             "agent_tools": local_config.get("agent_tools", {}),
             "pipelines": local_config.get("pipelines", {}),
+            "agents_dir": agents_dir,
         }
     return registry
 
@@ -94,6 +98,63 @@ def _resolve_repo_path(project_name: str, repo_name: str, registry: dict) -> str
     if not repo:
         return None
     return repo["path"]
+
+
+def _resolve_agent_file(agent: str, project_name: str, registry: dict, default_agents_dir: str) -> Path | None:
+    """Resolve agent name to definition file. Project agents take priority."""
+    project = registry.get(project_name)
+    if project:
+        project_agents = project.get("agents_dir")
+        if project_agents:
+            candidate = Path(project_agents) / f"{agent}.md"
+            if candidate.exists():
+                return candidate
+    candidate = Path(default_agents_dir) / f"{agent}.md"
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def _check_epic_completion(bead_id: str) -> bool:
+    """Check if all children of an epic are closed."""
+    result = subprocess.run(
+        ["bd", "show", bead_id, "--json"],
+        capture_output=True,
+        text=True,
+        cwd=SWITCHBOARD_DIR,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+        bead = data[0] if isinstance(data, list) else data
+        dependents = bead.get("dependents") or []
+        if not dependents:
+            return False
+        return all(d.get("status") == "closed" for d in dependents)
+    except (json.JSONDecodeError, IndexError):
+        return False
+
+
+def _has_open_dependencies(bead_id: str) -> bool:
+    """Check if a bead has any depends_on dependencies that aren't closed."""
+    result = subprocess.run(
+        ["bd", "show", bead_id, "--json"],
+        capture_output=True,
+        text=True,
+        cwd=SWITCHBOARD_DIR,
+    )
+    if result.returncode != 0:
+        return True
+    try:
+        data = json.loads(result.stdout)
+        bead = data[0] if isinstance(data, list) else data
+        for dep in bead.get("dependencies") or []:
+            if dep.get("dependency_type") == "depends_on" and dep.get("status") != "closed":
+                return True
+        return False
+    except (json.JSONDecodeError, IndexError):
+        return True
 
 
 def _resolve_tool_config(agent: str, project_name: str, registry: dict) -> dict | None:
@@ -259,6 +320,12 @@ def main():
             if not bead_id or bead_id in active:
                 continue
 
+            if bead.get("issue_type") == "epic":
+                if _check_epic_completion(bead_id):
+                    close_bead(bead_id)
+                    log.info("Epic completed: %s (%s)", bead_id, bead.get("title", ""))
+                continue
+
             agent = _extract_label(bead, "agent:")
             if not agent:
                 log.warning("Bead %s has no agent: label, skipping", bead_id)
@@ -281,9 +348,12 @@ def main():
                 log.info("Auto-closed integrate bead %s (router handles merging)", bead_id)
                 continue
 
-            agent_file = Path(agents_dir) / f"{agent}.md"
-            if not agent_file.exists():
+            agent_file = _resolve_agent_file(agent, project_name, registry, agents_dir)
+            if not agent_file:
                 log.warning("No agent definition for '%s', skipping %s", agent, bead_id)
+                continue
+
+            if _has_open_dependencies(bead_id):
                 continue
 
             if not claim_bead(bead_id):
@@ -302,7 +372,7 @@ def main():
 
             bead_context = worker.fetch_bead_context(bead_id, SWITCHBOARD_DIR)
             tool_cfg = _resolve_tool_config(agent, project_name, registry)
-            proc = worker.launch(agent, bead_id, wt_path, agents_dir, artifacts_dir,
+            proc = worker.launch(agent, bead_id, wt_path, agent_file, artifacts_dir,
                                  bead_context, repo_path, tool_cfg)
             active[bead_id] = {
                 "process": proc,

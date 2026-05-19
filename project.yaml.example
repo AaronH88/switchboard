@@ -1,6 +1,11 @@
 # project.yaml — Switchboard project configuration
 # Lives in each project's workspace root. Defines repos, pipelines, and coding tools.
 
+# Optional: directory containing project-specific agent definitions (.md files).
+# Agents here override built-in switchboard agents of the same name.
+# Path is relative to this project's workspace root.
+# agents_dir: .claude/agents
+
 # Repos in this project.
 # Paths can be absolute or relative to this project's workspace root.
 repos:
