@@ -97,15 +97,15 @@ class SwitchboardApp(App):
         await self._show_startup_splash()
 
         # Start daemon online detection
-        self.set_interval(30, self._check_daemon_status)
+        self.set_interval(15, self._check_daemon_status)
 
         # Start background worker for log tailing
         self.run_worker(self._watch_daemon_log())
 
         # Start polling timers
-        self.set_interval(10, self._poll_workers)
-        self.set_interval(15, self._poll_pipelines)
-        self.set_interval(60, self._poll_stats)
+        self.set_interval(5, self._poll_workers)
+        self.set_interval(5, self._poll_pipelines)
+        self.set_interval(30, self._poll_stats)
 
     async def _poll_workers(self) -> None:
         """Poll workers and update state."""
