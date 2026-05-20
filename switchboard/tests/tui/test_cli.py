@@ -203,6 +203,23 @@ class TestCliArgumentParsing:
                 version_output = captured_output.getvalue().strip()
                 assert version_output == "switchboard-tui 1.0.0"
 
+    def test_cli_version_subprocess(self):
+        """Test --version flag via subprocess for end-to-end validation."""
+        result = subprocess.run(
+            [sys.executable, '-m', 'switchboard.tui', '--version'],
+            capture_output=True,
+            text=True
+        )
+
+        # Should exit with code 0
+        assert result.returncode == 0
+
+        # Should print version string to stdout
+        assert result.stdout.strip() == "switchboard-tui 1.0.0"
+
+        # Should not print to stderr
+        assert result.stderr == ""
+
 
 class TestPythonModuleInvocation:
     """Tests for python -m switchboard.tui invocation."""
