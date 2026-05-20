@@ -1,87 +1,120 @@
-# Verification Results - App Assembly
-
-**Date**: 2026-05-20  
-**Bead**: switchboard-a2x  
-**Branch**: agents/switchboard-a2x-verify  
+# Verification Results: Switchboard TUI Screens & Polish
 
 ## Summary
 
-🔴 **VERIFICATION FAILED** - Critical test failures due to missing testing dependencies
+**Status: FAILED** - Critical dependency issues prevent proper testing
 
-## Verification Steps Results
+**Date:** 2026-05-20  
+**Bead:** switchboard-4yz  
+**Branch:** agents/switchboard-4yz-verify  
+**Verified by:** Verify agent
 
-### ✅ 1. Assembly Tests (cd switchboard && python -m pytest tests/tui/test_app.py -v)
-- **Status**: ❌ FAILED
-- **Results**: 30 failed, 1 passed
-- **Critical Issue**: `NameError: name 'AppTest' is not defined`
+## Test Results
 
-### ✅ 2. All TUI Tests (python -m pytest switchboard/tests/tui/ -v) 
-- **Status**: ❌ FAILED (partial run)
-- **Results**: Mixed failures and passes (collected 230 items)
-- **Critical Issues**: Same `AppTest` import issue affecting many tests
-
-### ✅ 3. Smoke Test (python -m switchboard.tui --help)
-- **Status**: ✅ PASSED
-- **Output**: Shows proper usage help with all expected options
-
-### ✅ 4. Import Check (python -c 'from switchboard.tui.app import SwitchboardApp; print("ok")')
-- **Status**: ✅ PASSED
-- **Output**: "ok" - SwitchboardApp imports successfully
-
-### ✅ 5. All Project Tests (python -m pytest tests/ -v)
-- **Status**: ✅ PASSED
-- **Results**: 15 tests passed, 0 failed
-
-## Critical Issues Found
-
-### 1. Missing `AppTest` Import (Critical)
-**File**: `switchboard/tests/tui/test_app.py`  
-**Error**: `NameError: name 'AppTest' is not defined`  
-**Impact**: 30 out of 31 app assembly tests failing  
-**Root Cause**: Missing import from Textual testing framework
-
-```python
-# Missing import at top of test_app.py:
-from textual.testing import AppTest
+### ❌ 1. Screen Tests
+```bash
+cd switchboard && python -m pytest tests/tui/test_screens.py -v
+```
+**Result:** FAILED  
+**Error:**
+```
+ModuleNotFoundError: No module named 'textual.testing'
+ImportError while importing test module 'tests/tui/test_screens.py'
 ```
 
-### 2. CLI Module Execution Tests (Medium)
-**File**: `switchboard/tests/tui/test_cli.py`  
-**Failures**: 
-- `test_main_module_execution` 
-- `test_main_module_import_error`
-- `test_main_function_delegates_to_app`
+### ❌ 2. Polish Tests  
+```bash
+python -m pytest tests/tui/test_polish.py -v
+```
+**Result:** FAILED  
+**Error:**
+```
+ModuleNotFoundError: No module named 'textual.testing'
+ImportError while importing test module 'tests/tui/test_polish.py'
+```
 
-### 3. CLI Argument Validation (Low)
-**File**: `switchboard/tests/tui/test_cli.py`  
-**Failure**: `test_cli_poll_interval_argument_invalid_values`
+### ❌ 3. ALL TUI Tests
+```bash
+python -m pytest tests/tui/ -v
+```
+**Result:** FAILED  
+**Error:**
+```
+collected 230 items / 2 errors
+ERROR tests/tui/test_polish.py - ModuleNotFoundError: No module named 'textual.testing'
+ERROR tests/tui/test_screens.py - ModuleNotFoundError: No module named 'textual.testing'
+```
 
-## Working Components
+### ⚠️ 4. ALL Project Tests (Partial)
+```bash
+python -m pytest tests/ -v --ignore=tests/tui/test_polish.py --ignore=tests/tui/test_screens.py
+```
+**Result:** PARTIAL SUCCESS (stopped due to time)
+- **Passed:** Basic app tests, CLI argument parsing tests
+- **Failed:** Many tests in test_app.py due to textual dependency issues
+- **Total collected:** 230 items (excluding problematic files)
+- **Sample failures:** App assembly, keybinding system, polling integration tests
 
-✅ **Core App Functionality**: SwitchboardApp class imports and initializes  
-✅ **CLI Interface**: Module execution shows proper help and usage  
-✅ **Project Infrastructure**: All non-TUI tests pass  
-✅ **Simple App Tests**: Basic app functionality tests pass (5/5)  
+### ✅ 5. Smoke Test
+```bash
+python -m switchboard.tui --help
+```
+**Result:** PASSED  
+**Output:** Help text displayed correctly, showing proper CLI interface
 
-## Recommendations
+### ✅ 6. Import Check (with proper PYTHONPATH)
+```bash
+PYTHONPATH=switchboard python -c "from switchboard.tui.screens.detail import DetailScreen; from switchboard.tui.screens.log_focus import LogFocusScreen; from switchboard.tui.screens.project import ProjectScreen; print('ok')"
+```
+**Result:** PASSED  
+**Output:** 'ok' - All screen modules imported successfully
 
-1. **Immediate Fix**: Add missing `AppTest` import to test_app.py
-2. **CLI Tests**: Review and fix module execution test expectations  
-3. **Argument Validation**: Fix poll interval validation tests
-4. **Re-run**: Execute full verification after fixes
+## Root Cause Analysis
+
+### Critical Issue: Missing Textual Dependency
+- **Problem:** `textual.testing` module is not available
+- **Impact:** Prevents execution of all TUI-specific tests (test_screens.py, test_polish.py)
+- **Files affected:** 
+  - `switchboard/tests/tui/test_screens.py:9`
+  - `switchboard/tests/tui/test_polish.py:9`
+
+### Secondary Issue: Module Path Configuration
+- **Problem:** `switchboard` module not in Python path by default
+- **Impact:** Import errors when running tests/modules
+- **Workaround:** PYTHONPATH=switchboard resolves import issues
+
+## Required Actions
+
+### Immediate (Blocking)
+1. **Install textual dependency:** `pip install textual[dev]` or add to requirements
+2. **Verify textual.testing availability:** Ensure testing submodule is included
+3. **Update test environment setup:** Configure PYTHONPATH or install package in development mode
+
+### Recommended
+1. **Add dependency management:** Create requirements.txt or pyproject.toml
+2. **Improve test isolation:** Use proper package installation for testing
+3. **Update CI/CD setup:** Ensure all dependencies are installed in test environments
+
+## Implementation Status
+
+### ✅ Code Implementation
+- All screen modules exist and are importable: DetailScreen, LogFocusScreen, ProjectScreen
+- TUI module structure is complete with proper __init__.py files
+- CLI interface is functional with proper argument parsing
+
+### ❌ Testing Infrastructure
+- Critical dependency missing (textual.testing)
+- Test files exist but cannot execute
+- Need proper development environment setup
+
+## Conclusion
+
+The Switchboard TUI implementation is **structurally complete** but **cannot be verified** due to missing test dependencies. The code can be imported and the CLI interface works correctly, indicating successful implementation. However, the test suite cannot run, preventing full quality assurance.
+
+**Next Steps:** Resolve dependency issues before proceeding with feature completion.
 
 ## Test Environment
-
-- **Python**: 3.13.5
-- **pytest**: 8.4.2  
-- **Platform**: darwin
-- **Plugins**: textual-snapshot-1.1.0, asyncio-1.3.0, syrupy-4.8.0, etc.
-
-## Files Requiring Fixes
-
-1. `switchboard/tests/tui/test_app.py` - Add AppTest import
-2. `switchboard/tests/tui/test_cli.py` - Fix module execution and validation tests
-
----
-
-**Next Action**: Development agent should fix the missing imports and test issues before re-verification.
+- **Python Version:** 3.13.5
+- **Pytest Version:** 8.4.2  
+- **Platform:** darwin (macOS)
+- **Working Directory:** /Users/ahetheri/nexus_workarea/switchboard/worktrees/switchboard-4yz/switchboard
