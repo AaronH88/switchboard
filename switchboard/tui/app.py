@@ -126,12 +126,13 @@ class SwitchboardApp(App):
     async def _poll_pipelines(self) -> None:
         """Poll pipelines and update state."""
         try:
-            # Note: Pipeline polling logic would go here
-            # For now, just refresh the PatchPanel
+            from .polling import poll_pipelines
+            pipeline_data = await poll_pipelines()
+            self.state = self.state.reconcile_pipelines(pipeline_data)
+
             patch_panel = self.query_one(PatchPanel)
             patch_panel.update_state(self.state)
-        except Exception as e:
-            # Handle polling errors gracefully
+        except Exception:
             pass
 
     async def _poll_stats(self) -> None:

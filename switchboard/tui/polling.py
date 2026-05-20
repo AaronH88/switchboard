@@ -106,6 +106,62 @@ async def poll_stats() -> Dict[str, Any]:
     return data
 
 
+async def poll_pipelines() -> Dict[str, Dict[str, Any]]:
+    """Build pipeline state from open/in-progress beads.
+
+    Returns dict of epic_id -> {title, project, repo, steps: [{bead_id, agent, status}]}
+    """
+    data = await bd_json(["bd", "list", "--json"])
+    if not isinstance(data, list):
+        return {}
+
+    epics = {}
+    children_by_epic = {}
+
+    for item in data:
+        if item.get("issue_type") == "epic":
+            epics[item["id"]] = item
+            children_by_epic[item["id"]] = []
+
+    for item in data:
+        if item.get("issue_type") == "epic":
+            continue
+        for dep in item.get("dependencies", []):
+            if dep.get("type") == "parent" and dep.get("depends_on_id") in epics:
+                children_by_epic[dep["depends_on_id"]].append(item)
+
+    pipelines = {}
+    for epic_id, epic in epics.items():
+        children = children_by_epic.get(epic_id, [])
+        if not children:
+            continue
+        labels = []
+        for child in children:
+            labels.extend(child.get("labels", []))
+        project = next((l.split(":", 1)[1] for l in labels if l.startswith("project:")), "unknown")
+        repo = next((l.split(":", 1)[1] for l in labels if l.startswith("repo:")), "unknown")
+
+        steps = []
+        for child in children:
+            child_labels = child.get("labels", [])
+            agent = next((l.split(":", 1)[1] for l in child_labels if l.startswith("agent:")), "unknown")
+            steps.append({
+                "bead_id": child["id"],
+                "agent": agent,
+                "status": child.get("status", "open"),
+            })
+
+        pipelines[epic_id] = {
+            "epic_id": epic_id,
+            "title": epic.get("title", ""),
+            "project": project,
+            "repo": repo,
+            "steps": steps,
+        }
+
+    return pipelines
+
+
 async def tail_file(path: Path) -> AsyncIterator[str]:
     """Tail a file, yielding new lines as they appear."""
     path = Path(path)

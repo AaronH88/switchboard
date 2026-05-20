@@ -255,6 +255,29 @@ class SwitchboardState:
 
         return replace(self, events=new_events)
 
+    def reconcile_pipelines(self, pipeline_data: Dict[str, Dict[str, Any]]) -> 'SwitchboardState':
+        """Reconcile pipelines from polling data."""
+        new_pipelines = {}
+        for epic_id, pdata in pipeline_data.items():
+            steps = []
+            for s in pdata.get("steps", []):
+                status = s.get("status", "open")
+                if status not in ("open", "in_progress", "closed", "blocked"):
+                    status = "open"
+                steps.append(StepState(
+                    bead_id=s["bead_id"],
+                    agent=s["agent"],
+                    status=status,
+                ))
+            new_pipelines[epic_id] = PipelineState(
+                epic_id=epic_id,
+                title=pdata.get("title", ""),
+                project=pdata.get("project", "unknown"),
+                repo=pdata.get("repo", "unknown"),
+                steps=steps,
+            )
+        return replace(self, pipelines=new_pipelines)
+
     def reconcile_workers(self, current_workers: List[Dict[str, Any]]) -> 'SwitchboardState':
         """Reconcile workers with current state from polling."""
         new_workers = {}
