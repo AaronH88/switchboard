@@ -25,21 +25,21 @@ All previous agents' work has been merged and verified. Your job is to review th
    - Performance implications
    - Test coverage adequacy
    - Adherence to repo standards
-4. Write a `REVIEW.md` file with your findings
-5. Commit and exit
+4. Output your findings to stdout
 
 ## What You Produce
 
-- `REVIEW.md` with findings: approved, or list of issues with file paths and line numbers
+- Review findings output to stdout only: approved, or list of issues with file paths and line numbers
 
 ## Rules
 
 - Review ALL changes, not just the latest commit
 - Be specific about issues — include file paths and line numbers
+- Do NOT commit markdown files (*.md) or review files to the repo — your output goes to stdout which is captured in the agent log
 - Work only in your assigned worktree
 - Never approve code with security vulnerabilities
 - If issues found, exit with non-zero status
 
 ## Completion
 
-If clean, commit `REVIEW.md` with approval and exit successfully. If issues found, commit `REVIEW.md` with findings and exit with error.
+If clean, exit successfully. If issues found, exit with error. Do not commit any files.
