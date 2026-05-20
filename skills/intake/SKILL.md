@@ -25,6 +25,7 @@ Ask the human:
 - What is the work? (one sentence)
 - Which pipeline? (list available pipelines from project.yaml)
 - Which repo? (list available repos from project.yaml)
+- List any project-specific agents: read `agents_dir` from `project.yaml`, then list `.md` files in that directory that are NOT symlinks (symlinks are built-in agents from switchboard). Tell the human what custom agents are available so they can use them in pipelines.
 - If multiple repos are needed, create **separate DAGs per repo**
 - Acceptance criteria (what does "done" look like?)
 
@@ -48,10 +49,17 @@ cd <repo-path> && git checkout -b feature/<slug> main
 
 **CRITICAL**: Use `bd create --graph` to create all beads atomically.
 
-Read the selected pipeline from `project.yaml` to determine which agents to include. Build the graph JSON with only those agents, chained in order.
+Read the selected pipeline from `project.yaml` to determine which steps to include. Build the graph JSON with those steps chained in order.
 
-Every bead MUST have these labels:
+Pipeline steps are either **agents** (bare names like `development`) or **tools** (prefixed like `tool:create-pr`).
+
+**For agent steps**, use the `agent:` label:
 - `agent:<agent-name>` — which agent handles it
+
+**For tool steps** (prefixed with `tool:` in the pipeline), use the `tool:` label:
+- `tool:<tool-name>` — which pipeline tool to run
+
+Every bead MUST also have:
 - `repo:<repo-name>` — which repo to work in
 - `project:<project-name>` — which project this belongs to
 
@@ -65,16 +73,23 @@ Every bead MUST have these labels:
       "description": "<overview and acceptance criteria>"
     },
     {
-      "key": "<agent>",
-      "title": "<Agent>: <work description>",
+      "key": "<step>",
+      "title": "<Step>: <work description>",
       "type": "task",
       "labels": ["agent:<agent>", "repo:<repo-name>", "project:<project-name>"],
-      "description": "<ENRICHED: specific context for this agent>"
+      "description": "<ENRICHED: specific context for this step>"
+    },
+    {
+      "key": "<tool-step>",
+      "title": "Tool: <tool-name>",
+      "type": "task",
+      "labels": ["tool:<tool-name>", "repo:<repo-name>", "project:<project-name>"],
+      "description": "Run pipeline tool: <tool-name>"
     }
   ],
   "edges": [
-    {"from_key": "<agent>", "to_key": "epic", "type": "parent"},
-    {"from_key": "<agent2>", "to_key": "<agent1>", "type": "depends_on"}
+    {"from_key": "<step>", "to_key": "epic", "type": "parent"},
+    {"from_key": "<step2>", "to_key": "<step1>", "type": "depends_on"}
   ]
 }
 ```
@@ -110,7 +125,7 @@ Tell the human:
 
 - **NEVER implement code directly**
 - **NEVER create beads then update them** — the daemon picks up beads immediately
-- Every bead MUST have `agent:`, `repo:`, and `project:` labels
+- Every bead MUST have `repo:` and `project:` labels, plus either `agent:` (for agent steps) or `tool:` (for tool steps)
 - For multi-repo work, create separate DAGs per repo
 - Pipeline steps are chained in the order defined in `project.yaml`
 - **All descriptions must be complete at creation time**

@@ -68,12 +68,13 @@ def build_prompt(
     agent: str,
     bead_id: str,
     worktree_path: str,
-    agents_dir: str,
+    agent_file: Path | None = None,
     bead_context: str = "",
     repo_abs: str = "",
 ) -> str:
-    agent_file = Path(agents_dir) / f"{agent}.md"
-    agent_def = strip_frontmatter(agent_file.read_text()) if agent_file.exists() else ""
+    agent_def = ""
+    if agent_file and agent_file.exists():
+        agent_def = strip_frontmatter(agent_file.read_text())
     parts = [agent_def, f"\nBead: {bead_id}", f"Worktree: {worktree_path}"]
     if bead_context:
         parts.append(f"\n# Assignment Context\n\n{bead_context}")
@@ -113,7 +114,7 @@ def launch(
     agent: str,
     bead_id: str,
     worktree_path: str,
-    agents_dir: str,
+    agent_file: Path | None,
     artifacts_dir: str,
     bead_context: str = "",
     repo: str = "",
@@ -123,7 +124,7 @@ def launch(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     repo_abs = os.path.abspath(repo) if repo else ""
-    prompt = build_prompt(agent, bead_id, worktree_path, agents_dir, bead_context, repo_abs)
+    prompt = build_prompt(agent, bead_id, worktree_path, agent_file, bead_context, repo_abs)
 
     prompt_file = str(log_dir / "prompt.txt")
     Path(prompt_file).write_text(prompt)

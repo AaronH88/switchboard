@@ -1,6 +1,11 @@
 # project.yaml — Switchboard project configuration
 # Lives in each project's workspace root. Defines repos, pipelines, and coding tools.
 
+# Optional: directory containing project-specific agent definitions (.md files).
+# Agents here override built-in switchboard agents of the same name.
+# Path is relative to this project's workspace root.
+# agents_dir: .claude/agents
+
 # Repos in this project.
 # Paths can be absolute or relative to this project's workspace root.
 repos:
@@ -11,9 +16,10 @@ repos:
     path: ./frontend
     verify: "npm install && npm test && npm run lint"
 
-# Named pipelines — each is a sequence of agents.
+# Named pipelines — each is a sequence of agents and/or tools.
 # /intake asks which pipeline to use when creating a feature DAG.
 # Available built-in agents: tdd, interface, tests, development, integrate, verify, review
+# Use "tool:<name>" prefix for pipeline tool steps (defined in pipeline_tools below).
 pipelines:
   dev:                                  # Full TDD development
     - tdd
@@ -34,6 +40,24 @@ pipelines:
     - tdd
     - tests
     - verify
+
+  # deploy:                             # Example with tool steps
+  #   - development
+  #   - verify
+  #   - tool:create-pr                  # Runs a shell command, no worktree
+
+# Pipeline tools — shell commands that run as pipeline steps.
+# Use "tool:<name>" in pipelines to reference these.
+# Template variables: {repo} (repo path), {branch} (current branch), {bead_id},
+#   {epic_id}, {epic_title}, {project}
+# cwd: "repo" (default), "project", or "switchboard"
+# pipeline_tools:
+#   create-pr:
+#     command: ["gh", "pr", "create", "--title", "[switchboard] {epic_title}", "--head", "{branch}"]
+#     cwd: repo
+#   notify:
+#     command: ["curl", "-X", "POST", "-d", "Epic {epic_id} complete", "https://hooks.slack.com/..."]
+#     cwd: project
 
 # Coding tools — define how each tool is invoked.
 # Template variables: {prompt_file} (path to prompt), {prompt} (inline text), {worktree} (path)
