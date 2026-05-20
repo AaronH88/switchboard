@@ -21,7 +21,7 @@ from .widgets import (
     PatchPanel,
     ActiveLines,
     PartyLine,
-    Footer
+    SwitchboardFooter
 )
 from .state import SwitchboardState
 from .polling import poll_workers, poll_stats, tail_file
@@ -86,7 +86,7 @@ class SwitchboardApp(App):
         yield PartyLine()
 
         # Footer
-        yield Footer()
+        yield SwitchboardFooter()
 
     async def on_mount(self) -> None:
         """Initialize app after mounting."""
@@ -162,13 +162,12 @@ class SwitchboardApp(App):
                     party_line = self.query_one(PartyLine)
                     party_line.update_state(self.state)
 
-                    # Update daemon status if needed
                     if event.parsed_event_type in ["daemon_started", "daemon_stopped"]:
-                        self.state = self.state._replace(
+                        from dataclasses import replace
+                        self.state = replace(self.state,
                             daemon_online=event.parsed_event_type == "daemon_started"
                         )
-                        footer = self.query_one(Footer)
-                        footer.update_state(self.state)
+                        self.query_one(SwitchboardFooter).update_state(self.state)
         except Exception as e:
             # Handle log watching errors gracefully
             pass
@@ -212,7 +211,7 @@ class SwitchboardApp(App):
                 header.update_state(self.state)
 
                 # Update footer
-                footer = self.query_one(Footer)
+                footer = self.query_one(SwitchboardFooter)
                 footer.update_state(self.state)
 
         except Exception:

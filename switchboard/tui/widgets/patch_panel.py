@@ -63,8 +63,12 @@ class PatchPanel(Static):
         total_count = len(pipeline.steps)
         progress = f"{completed_count}/{total_count} done"
 
+        PIPELINE_ORDER = ["tdd", "tests", "development", "verify", "review", "integrate"]
+        sorted_steps = sorted(pipeline.steps,
+            key=lambda s: PIPELINE_ORDER.index(s.agent) if s.agent in PIPELINE_ORDER else 99)
+
         step_display = []
-        for step in pipeline.steps:
+        for step in sorted_steps:
             label = self._get_step_label(step.agent)
             status_symbol = self._get_status_symbol(step.status)
             step_display.append(f"{label} {status_symbol}")
@@ -122,7 +126,7 @@ class PatchPanel(Static):
             return ""
 
         # Calculate elapsed time (simplified for now)
-        tool = worker.tool or "unknown"
+        tool = worker.tool or "claude"
         return f"                  └── {tool} · working"
 
     def get_empty_state_message(self) -> str:

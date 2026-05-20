@@ -9,39 +9,26 @@ class ActiveLines(Static):
     """Widget showing active worker lines."""
 
     def __init__(self):
-        super().__init__()
+        super().__init__("Active Lines\nNo active workers")
         self.add_class("activelines")
         self.state: SwitchboardState = SwitchboardState()
 
     @property
     def can_focus(self) -> bool:
-        """Make the widget focusable."""
         return True
 
     def update_state(self, state: SwitchboardState) -> None:
-        """Update the widget with new state."""
         self.state = state
-        self._refresh_content()
-
-    def _refresh_content(self) -> None:
-        """Refresh the widget content based on current state."""
-        content_lines = []
-        content_lines.append("Active Lines")
-        content_lines.append("=" * 20)
-
-        if not self.state.workers:
-            content_lines.append("No active workers")
+        lines = ["ACTIVE LINES"]
+        if not state.workers:
+            lines.append("  ( ) No active workers")
         else:
-            for i, (bead_id, worker) in enumerate(sorted(self.state.workers.items()), 1):
-                line = f"Line {i}: {worker.epic_id} ({worker.agent})"
-                content_lines.append(line)
-
+            for i, (bead_id, w) in enumerate(sorted(state.workers.items()), 1):
+                tool = w.tool or "claude"
+                lines.append(
+                    f"  (*) {i}  {w.bead_id}  {w.agent:<12} {w.repo:<10} {tool:<8} CONNECTED"
+                )
         try:
-            self.update(Text("\n".join(content_lines)))
+            self.update(Text("\n".join(lines)))
         except Exception:
-            # Handle case when widget is not in app context (during testing)
             pass
-
-    def get_worker_list(self) -> list:
-        """Get list of worker bead_ids (for testing)."""
-        return list(self.state.workers.keys())

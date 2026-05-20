@@ -6,7 +6,7 @@ from .projects_panel import ProjectsPanel
 from .patch_panel import PatchPanel
 from .active_lines import ActiveLines
 from .party_line import PartyLine
-from .footer import Footer
+from .footer import SwitchboardFooter
 
 __all__ = [
     "SwitchboardHeader",
@@ -15,5 +15,5 @@ __all__ = [
     "PatchPanel",
     "ActiveLines",
     "PartyLine",
-    "Footer",
+    "SwitchboardFooter",
 ]
