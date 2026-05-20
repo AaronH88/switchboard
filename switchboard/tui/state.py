@@ -260,15 +260,23 @@ class SwitchboardState:
         new_workers = {}
 
         for worker_data in current_workers:
+            labels = worker_data.get("labels", [])
+            agent = next((l.split(":", 1)[1] for l in labels if l.startswith("agent:")), "unknown")
+            repo = next((l.split(":", 1)[1] for l in labels if l.startswith("repo:")), "unknown")
+            tool = next((l.split(":", 1)[1] for l in labels if l.startswith("tool:")), None)
+
+            deps = worker_data.get("dependencies", [])
+            epic_id = next((d.get("depends_on_id", d.get("issue_id", "")) for d in deps if d.get("type") == "parent"), None)
+
             worker = WorkerState(
-                bead_id=worker_data["bead_id"],
-                agent=worker_data["agent"],
-                repo=worker_data["repo"],
-                tool=worker_data.get("tool"),
-                pid=worker_data["pid"],
-                started_at=worker_data["started_at"],
-                title=worker_data["title"],
-                epic_id=worker_data.get("epic_id")
+                bead_id=worker_data["id"],
+                agent=agent,
+                repo=repo,
+                tool=tool,
+                pid=None,
+                started_at=worker_data.get("started_at", worker_data.get("created_at", "")),
+                title=worker_data.get("title", ""),
+                epic_id=epic_id,
             )
             new_workers[worker.bead_id] = worker
 
