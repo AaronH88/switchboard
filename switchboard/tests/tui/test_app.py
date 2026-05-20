@@ -15,7 +15,7 @@ import time
 import psutil
 from unittest.mock import patch, MagicMock, AsyncMock, mock_open
 from pathlib import Path
-from textual.testing import AppTest
+from textual.pilot import Pilot
 from textual.keys import Keys
 import tempfile
 from collections import deque

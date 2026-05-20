@@ -28,7 +28,7 @@ from .polling import poll_workers, poll_stats, tail_file
 class SwitchboardApp(App):
     """Switchboard TUI application."""
 
-# CSS_PATH = Path(__file__).parent / "switchboard.tcss"
+    CSS_PATH = Path(__file__).parent / "switchboard.tcss"
     TITLE = "Switchboard TUI"
     SUB_TITLE = "Agent Pipeline Monitor"
 

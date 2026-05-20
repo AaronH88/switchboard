@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from datetime import datetime
 from collections import deque
-from textual.testing import AppTester
+from textual.pilot import Pilot
 from textual.app import App
 
 # Import the signature widgets that will be implemented
