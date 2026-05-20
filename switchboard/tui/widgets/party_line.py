@@ -53,7 +53,10 @@ class PartyLine(Static):
         content_lines.append("─" * len(self.header_text))
 
         if not self.state.events:
-            content_lines.append("(empty - waiting for events)")
+            if not self.state.daemon_online:
+                content_lines.append("(waiting for daemon)")
+            else:
+                content_lines.append("(empty - waiting for events)")
         else:
             # Filter events based on current source
             filtered_events = self._filter_events_by_source()
@@ -135,3 +138,7 @@ class PartyLine(Static):
         # Look for "attempt X/Y"
         match = re.search(r'attempt (\d+/\d+)', message.lower())
         return f"({match.group(1)})" if match else "(1/3)"
+
+    def get_content(self) -> str:
+        """Get current log content for testing."""
+        return self.log_content

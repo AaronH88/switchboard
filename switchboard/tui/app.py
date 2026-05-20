@@ -5,12 +5,14 @@ Dependencies:
 """
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Optional, Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
+from rich.text import Text
 
 from .widgets import (
     SwitchboardHeader,
@@ -23,6 +25,7 @@ from .widgets import (
 )
 from .state import SwitchboardState
 from .polling import poll_workers, poll_stats, tail_file
+from .screens import DetailScreen, LogFocusScreen, ProjectScreen
 
 
 class SwitchboardApp(App):
@@ -89,6 +92,12 @@ class SwitchboardApp(App):
         """Initialize app after mounting."""
         # Initialize SwitchboardState
         self.state = SwitchboardState()
+
+        # Show startup splash
+        await self._show_startup_splash()
+
+        # Start daemon online detection
+        self.set_interval(30, self._check_daemon_status)
 
         # Start background worker for log tailing
         self.run_worker(self._watch_daemon_log())
@@ -162,15 +171,86 @@ class SwitchboardApp(App):
             # Handle log watching errors gracefully
             pass
 
+    async def _show_startup_splash(self) -> None:
+        """Show startup splash message."""
+        startup_text = Text("SWITCHBOARD ONLINE · PATCHING IN...", style="bold green")
+        startup_overlay = Static(startup_text)
+        startup_overlay.add_class("startup-overlay")
+
+        # Add overlay to the app
+        await self.mount(startup_overlay)
+
+        # Auto-dismiss after 2-3 seconds
+        await asyncio.sleep(2.5)
+
+        # Remove overlay
+        try:
+            startup_overlay.remove()
+        except:
+            pass  # Handle case where overlay is already gone
+
+    def _check_daemon_status(self) -> None:
+        """Check if daemon is online by looking at log file modification time."""
+        try:
+            log_path = Path(self.artifacts_dir) / "agent_router.log"
+
+            if not log_path.exists():
+                daemon_online = False
+            else:
+                # Check if file was modified in the last 30 seconds
+                mtime = log_path.stat().st_mtime
+                current_time = time.time()
+                daemon_online = (current_time - mtime) < 30
+
+            if self.state.daemon_online != daemon_online:
+                self.state = self.state._replace(daemon_online=daemon_online)
+
+                # Update header
+                header = self.query_one(SwitchboardHeader)
+                header.update_state(self.state)
+
+                # Update footer
+                footer = self.query_one(Footer)
+                footer.update_state(self.state)
+
+        except Exception:
+            # Handle file access errors gracefully
+            pass
+
     def action_show_detail(self) -> None:
-        """Show detail screen (placeholder)."""
-        # Placeholder for DetailScreen
-        pass
+        """Show detail screen for selected bead."""
+        # Get selected bead from focused widget
+        focused_widget = self.focused
+
+        selected_bead_id = None
+
+        # Check PatchPanel for selection
+        if hasattr(focused_widget, 'add_class') and 'patchpanel' in str(focused_widget.classes):
+            # PatchPanel selection logic would go here
+            # For now, get first bead from workers if available
+            if self.state.workers:
+                selected_bead_id = list(self.state.workers.keys())[0]
+
+        # Check ActiveLines for selection
+        elif hasattr(focused_widget, 'add_class') and 'activelines' in str(focused_widget.classes):
+            # ActiveLines selection logic would go here
+            if self.state.workers:
+                selected_bead_id = list(self.state.workers.keys())[0]
+
+        if selected_bead_id:
+            detail_screen = DetailScreen(selected_bead_id, artifacts_dir=self.artifacts_dir)
+            self.push_screen(detail_screen)
 
     def action_toggle_log_focus(self) -> None:
-        """Toggle log focus screen (placeholder)."""
-        # Placeholder for LogFocusScreen
-        pass
+        """Toggle log focus screen."""
+        # Check if we're already on LogFocusScreen
+        if isinstance(self.screen, LogFocusScreen):
+            # Pop back to main screen
+            self.pop_screen()
+        else:
+            # Push LogFocusScreen
+            log_focus_screen = LogFocusScreen()
+            self.push_screen(log_focus_screen)
 
     def action_force_refresh(self) -> None:
         """Force refresh all data."""

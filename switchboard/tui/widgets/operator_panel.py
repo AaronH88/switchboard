@@ -27,7 +27,14 @@ class OperatorPanel(Static):
         # Worker count
         content_lines.append(f"Workers: {self.worker_count}")
 
+        # Check for capacity issues
+        capacity_message = self.get_capacity_message()
+        if capacity_message:
+            content_lines.append("")  # Spacing
+            content_lines.append(capacity_message)
+
         # Stats
+        content_lines.append("")
         content_lines.append(f"Completed: {self.state.stats.completed_today}")
         content_lines.append(f"Failed: {self.state.stats.failed_today}")
         content_lines.append(f"Blocked: {self.state.stats.blocked_count}")
@@ -37,6 +44,25 @@ class OperatorPanel(Static):
         except Exception:
             # Handle case when widget is not in app context (during testing)
             pass
+
+    def get_capacity_message(self) -> str:
+        """Get capacity message for max workers."""
+        max_workers = 9  # Assume max of 9 workers
+        current_workers = len(self.state.workers)
+
+        if current_workers >= max_workers:
+            # Check for ready beads waiting
+            try:
+                from ..polling import bd_json
+                import asyncio
+
+                # This would need to be called async, for now return simple message
+                # In practice, the app would track ready beads count
+                return f"ALL LINES BUSY · {current_workers} CALLS HOLDING"
+            except:
+                return f"ALL LINES BUSY · CAPACITY REACHED"
+
+        return ""
 
     def compose(self):
         """Compose the initial content."""

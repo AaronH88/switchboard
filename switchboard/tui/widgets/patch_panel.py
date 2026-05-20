@@ -28,9 +28,18 @@ class PatchPanel(Static):
 
     def _refresh_content(self) -> None:
         """Refresh the widget content based on current state."""
-        if not self.state.pipelines:
+        if not self.state.pipelines and not self.state.workers:
+            # Check for "all quiet" state
+            empty_message = self.get_empty_state_message()
             try:
-                self.mount(Static("No active pipelines"))
+                self.update(Text(empty_message))
+            except Exception:
+                # Handle case when widget is not mounted (during testing)
+                pass
+            return
+        elif not self.state.pipelines:
+            try:
+                self.update(Text("No active pipelines"))
             except Exception:
                 # Handle case when widget is not mounted (during testing)
                 pass
@@ -121,3 +130,16 @@ class PatchPanel(Static):
         # Calculate elapsed time (simplified for now)
         tool = worker.tool or "unknown"
         return f"                  └── {tool} · working"
+
+    def get_empty_state_message(self) -> str:
+        """Get empty state message when no activity."""
+        # Check if we truly have no activity
+        if not self.state.workers and not self.state.pipelines:
+            return "ALL QUIET ON THE BOARD · OPERATOR STANDING BY"
+        return "No active pipelines"
+
+    def get_content(self) -> str:
+        """Get current panel content for testing."""
+        if hasattr(self, 'renderable') and hasattr(self.renderable, 'plain'):
+            return self.renderable.plain
+        return ""
