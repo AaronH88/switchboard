@@ -19,6 +19,7 @@ class OperatorPanel(Static):
         workers = len(state.workers)
         stats = state.stats
         lines = [
+            "OPERATOR PANEL",
             f"Workers: {workers}",
             f"Completed: {stats.completed_today}  Failed: {stats.failed_today}  Blocked: {stats.blocked_count}",
         ]

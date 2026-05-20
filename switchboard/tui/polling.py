@@ -25,7 +25,7 @@ def parse_log_line(line: str) -> Optional[LogEvent]:
     # 2026-05-20 14:23:01 [INFO] Message
     # 2026-05-20 14:23:01.123 [ERROR] Message
     # 2026-05-20 14:23:01+00:00 [WARNING] Message
-    pattern = r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2})?)\s+\[(\w+)\]\s+(.+)$'
+    pattern = r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:[+-]\d{2}:\d{2})?)\s+\[(\w+)\]\s+(.+)$'
 
     match = re.match(pattern, line.strip())
     if not match:
@@ -107,7 +107,7 @@ async def poll_stats() -> Dict[str, Any]:
 
 
 async def poll_pipelines() -> Dict[str, Dict[str, Any]]:
-    """Build pipeline state from open/in-progress beads.
+    """Build pipeline state from open epics and their children.
 
     Returns dict of epic_id -> {title, project, repo, steps: [{bead_id, agent, status}]}
     """
@@ -115,49 +115,55 @@ async def poll_pipelines() -> Dict[str, Dict[str, Any]]:
     if not isinstance(data, list):
         return {}
 
-    epics = {}
-    children_by_epic = {}
-
-    for item in data:
-        if item.get("issue_type") == "epic":
-            epics[item["id"]] = item
-            children_by_epic[item["id"]] = []
-
-    for item in data:
-        if item.get("issue_type") == "epic":
-            continue
-        for dep in item.get("dependencies", []):
-            if dep.get("type") == "parent" and dep.get("depends_on_id") in epics:
-                children_by_epic[dep["depends_on_id"]].append(item)
+    epic_ids = [item["id"] for item in data if item.get("issue_type") == "epic"]
+    if not epic_ids:
+        return {}
 
     pipelines = {}
-    for epic_id, epic in epics.items():
-        children = children_by_epic.get(epic_id, [])
-        if not children:
+    for epic_id in epic_ids:
+        try:
+            epic_data = await bd_json(["bd", "show", epic_id, "--json"])
+            if isinstance(epic_data, list):
+                epic_data = epic_data[0] if epic_data else {}
+
+            dependents = epic_data.get("dependents", [])
+            if not dependents:
+                continue
+
+            child_ids = [d.get("id", "") for d in dependents if d.get("id")]
+            if not child_ids:
+                continue
+
+            steps = []
+            project = "unknown"
+            repo = "unknown"
+            for child_id in child_ids:
+                try:
+                    child_data = await bd_json(["bd", "show", child_id, "--json"])
+                    if isinstance(child_data, list):
+                        child_data = child_data[0] if child_data else {}
+                    labels = child_data.get("labels", [])
+                    agent = next((l.split(":", 1)[1] for l in labels if l.startswith("agent:")), "unknown")
+                    if project == "unknown":
+                        project = next((l.split(":", 1)[1] for l in labels if l.startswith("project:")), "unknown")
+                        repo = next((l.split(":", 1)[1] for l in labels if l.startswith("repo:")), "unknown")
+                    steps.append({
+                        "bead_id": child_id,
+                        "agent": agent,
+                        "status": child_data.get("status", "open"),
+                    })
+                except Exception:
+                    continue
+
+            pipelines[epic_id] = {
+                "epic_id": epic_id,
+                "title": epic_data.get("title", ""),
+                "project": project,
+                "repo": repo,
+                "steps": steps,
+            }
+        except Exception:
             continue
-        labels = []
-        for child in children:
-            labels.extend(child.get("labels", []))
-        project = next((l.split(":", 1)[1] for l in labels if l.startswith("project:")), "unknown")
-        repo = next((l.split(":", 1)[1] for l in labels if l.startswith("repo:")), "unknown")
-
-        steps = []
-        for child in children:
-            child_labels = child.get("labels", [])
-            agent = next((l.split(":", 1)[1] for l in child_labels if l.startswith("agent:")), "unknown")
-            steps.append({
-                "bead_id": child["id"],
-                "agent": agent,
-                "status": child.get("status", "open"),
-            })
-
-        pipelines[epic_id] = {
-            "epic_id": epic_id,
-            "title": epic.get("title", ""),
-            "project": project,
-            "repo": repo,
-            "steps": steps,
-        }
 
     return pipelines
 

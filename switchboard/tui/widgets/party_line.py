@@ -49,8 +49,8 @@ class PartyLine(Static):
     def _refresh_content(self) -> None:
         """Refresh the widget content based on current state and source."""
         content_lines = []
-        content_lines.append(self.header_text)
-        content_lines.append("─" * len(self.header_text))
+        content_lines.append(f"PARTY LINE  {self.header_text}")
+        content_lines.append("─" * 40)
 
         if not self.state.events:
             if not self.state.daemon_online:
@@ -129,7 +129,7 @@ class PartyLine(Static):
         """Extract epic ID from message."""
         import re
         # Look for patterns like mol-xxx or epic-xxx
-        match = re.search(r'(mol-\w+|epic-\w+)', message.lower())
+        match = re.search(r'(\w+-\w+)', message)
         return match.group(1) if match else "unknown"
 
     def _extract_attempt_info(self, message: str) -> str:

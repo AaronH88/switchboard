@@ -45,8 +45,7 @@ class PatchPanel(Static):
                 pass
             return
 
-        # Build all pipeline text and update in one call
-        lines = []
+        lines = ["PATCH PANEL"]
         for epic_id in sorted(self.state.pipelines.keys()):
             pipeline = self.state.pipelines[epic_id]
             lines.append(self._render_pipeline_text(pipeline))

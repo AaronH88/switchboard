@@ -16,7 +16,7 @@ class ProjectsPanel(Static):
     def update_state(self, state: SwitchboardState) -> None:
         """Update the widget with new state."""
         self.state = state
-        lines = []
+        lines = ["PROJECTS"]
         if state.projects:
             for name, info in state.projects.items():
                 lamp = "(*)" if info.active_lines > 0 else "( )"

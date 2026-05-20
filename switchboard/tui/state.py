@@ -151,8 +151,7 @@ class LogEvent:
         if "claimed" not in message_lower:
             return False
 
-        # Should have mol-xxx or epic-xxx and proper parentheses structure
-        if not (("mol-" in message_lower or "epic-" in message_lower)):
+        if not re.search(r'\w+-\w+', message_lower):
             return False
 
         # Check for proper format with parentheses and key parameters
@@ -169,8 +168,7 @@ class LogEvent:
         if "completed" not in message_lower:
             return False
 
-        # Should have mol-xxx or epic-xxx and proper parentheses structure
-        if not (("mol-" in message_lower or "epic-" in message_lower)):
+        if not re.search(r'\w+-\w+', message_lower):
             return False
 
         # Check for proper format with parentheses and key parameters
@@ -187,8 +185,7 @@ class LogEvent:
         if "failed" not in message_lower:
             return False
 
-        # Should have mol-xxx or epic-xxx and attempt information
-        if not (("mol-" in message_lower or "epic-" in message_lower)):
+        if not re.search(r'\w+-\w+', message_lower):
             return False
 
         # Should have attempt info
