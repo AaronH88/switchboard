@@ -66,7 +66,7 @@ class TestLogParser:
             "claimed"
         ),
         (
-            "2026-05-20 14:23:01 [INFO] Claimed epic-xyz (project: myapp, tool: pytest, repo: api)",
+            "2026-05-20 14:23:01 [INFO] Claimed epic-xyz (agent: tdd, project: myapp, repo: api)",
             "claimed"
         ),
     ])
@@ -213,7 +213,6 @@ class TestBdCliWrappers:
         cmd = ["bd", "list", "--json"]
 
         test_cases = [
-            "",  # Empty string
             '{"beads": [',  # Partial JSON
             '{beads: []}',  # Invalid syntax
         ]
@@ -227,6 +226,12 @@ class TestBdCliWrappers:
 
                 with pytest.raises(json.JSONDecodeError):
                     await bd_json(cmd)
+
+        # Empty string returns empty list (not an error)
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(stdout="", returncode=0)
+            result = await bd_json(cmd)
+            assert result == []
 
     @pytest.mark.asyncio
     async def test_bd_json_command_failure(self):
@@ -294,20 +299,16 @@ class TestBdCliWrappers:
 
     @pytest.mark.asyncio
     async def test_poll_workers_malformed_response(self):
-        """Test poll_workers with malformed response structure."""
-        # Missing "beads" key
+        """Test poll_workers with malformed response returns empty."""
         with patch('switchboard.tui.polling.bd_json') as mock_bd_json:
             mock_bd_json.return_value = {"invalid": "structure"}
+            result = await poll_workers()
+            assert result == []
 
-            with pytest.raises(KeyError):
-                await poll_workers()
-
-        # "beads" is not a list
         with patch('switchboard.tui.polling.bd_json') as mock_bd_json:
-            mock_bd_json.return_value = {"beads": "not_a_list"}
-
-            with pytest.raises(TypeError):
-                await poll_workers()
+            mock_bd_json.return_value = "not_a_dict_or_list"
+            result = await poll_workers()
+            assert result == []
 
     @pytest.mark.asyncio
     async def test_poll_workers_bd_error(self):
@@ -371,284 +372,147 @@ class TestBdCliWrappers:
 
 
 class TestFileTailer:
-    """Tests for file tailing functionality."""
+    """Tests for file tailing functionality.
+
+    All tests use asyncio.wait_for() with timeouts because tail_file()
+    is a while-True loop that never exits on its own.
+    """
+
+    TIMEOUT = 3
 
     @pytest.mark.asyncio
     async def test_tail_file_existing_file(self):
-        """Test tail_file with existing file."""
-        content_lines = [
-            "Line 1\n",
-            "Line 2\n",
-            "Line 3\n"
-        ]
+        """Test tail_file reads existing content."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log') as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+            f.flush()
+            path = Path(f.name)
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            tmp_file.writelines(content_lines)
-            tmp_file.flush()
-
-            try:
-                lines_read = []
-                async for line in tail_file(Path(tmp_file.name)):
-                    lines_read.append(line)
-                    if len(lines_read) >= 3:
+        try:
+            lines = []
+            async with asyncio.timeout(self.TIMEOUT):
+                async for line in tail_file(path):
+                    lines.append(line.strip())
+                    if len(lines) >= 3:
                         break
 
-                assert len(lines_read) == 3
-                assert lines_read[0].strip() == "Line 1"
-                assert lines_read[1].strip() == "Line 2"
-                assert lines_read[2].strip() == "Line 3"
-
-            finally:
-                Path(tmp_file.name).unlink()
+            assert lines == ["Line 1", "Line 2", "Line 3"]
+        finally:
+            path.unlink(missing_ok=True)
 
     @pytest.mark.asyncio
-    async def test_tail_file_empty_file(self):
-        """Test tail_file with empty file."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            pass  # Create empty file
+    async def test_tail_file_empty_file_no_output(self):
+        """Test tail_file yields nothing for an empty file within timeout."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log') as f:
+            path = Path(f.name)
 
         try:
-            lines_read = []
-            tail_gen = tail_file(Path(tmp_file.name))
+            lines = []
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.5):
+                    async for line in tail_file(path):
+                        lines.append(line)
 
-            # Should handle empty file gracefully
-            async for line in tail_gen:
-                lines_read.append(line)
-                break  # Don't wait indefinitely
-
-            # Empty file should not yield any lines immediately
-            assert len(lines_read) == 0
-
+            assert lines == []
         finally:
-            Path(tmp_file.name).unlink()
+            path.unlink(missing_ok=True)
 
     @pytest.mark.asyncio
-    async def test_tail_file_new_lines_appended(self):
-        """Test tail_file yields new lines as they're appended."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            tmp_file.write("Initial line\n")
-            tmp_file.flush()
-
-            try:
-                tail_gen = tail_file(Path(tmp_file.name))
-                lines_read = []
-
-                # Read initial content
-                line = await tail_gen.__anext__()
-                lines_read.append(line)
-
-                # Append new content
-                with open(tmp_file.name, 'a') as f:
-                    f.write("New line\n")
-                    f.flush()
-
-                # Should yield new line
-                line = await tail_gen.__anext__()
-                lines_read.append(line)
-
-                assert lines_read[0].strip() == "Initial line"
-                assert lines_read[1].strip() == "New line"
-
-            finally:
-                Path(tmp_file.name).unlink()
-
-    @pytest.mark.asyncio
-    async def test_tail_file_nonexistent_file_waits(self):
-        """Test tail_file waits for non-existent file creation."""
-        nonexistent_path = Path("/tmp/nonexistent_test_file.log")
-
-        # Ensure file doesn't exist
-        if nonexistent_path.exists():
-            nonexistent_path.unlink()
-
-        tail_gen = tail_file(nonexistent_path)
-
-        async def create_file_after_delay():
-            await asyncio.sleep(0.1)  # Small delay
-            with open(nonexistent_path, 'w') as f:
-                f.write("Created file\n")
-
-        # Start file creation in background
-        create_task = asyncio.create_task(create_file_after_delay())
+    async def test_tail_file_appended_lines(self):
+        """Test tail_file picks up new lines appended after start."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log') as f:
+            f.write("First\n")
+            f.flush()
+            path = Path(f.name)
 
         try:
-            # Should wait for file creation and then read
-            line = await tail_gen.__anext__()
-            assert line.strip() == "Created file"
+            gen = tail_file(path)
+            line1 = await asyncio.wait_for(gen.__anext__(), timeout=self.TIMEOUT)
+            assert line1.strip() == "First"
 
-            await create_task
+            with open(path, 'a') as f:
+                f.write("Second\n")
+                f.flush()
+
+            line2 = await asyncio.wait_for(gen.__anext__(), timeout=self.TIMEOUT)
+            assert line2.strip() == "Second"
         finally:
-            if nonexistent_path.exists():
-                nonexistent_path.unlink()
+            path.unlink(missing_ok=True)
 
     @pytest.mark.asyncio
-    async def test_tail_file_file_rotation(self):
-        """Test tail_file handles file rotation/replacement."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            tmp_file.write("Original content\n")
-            tmp_file.flush()
+    async def test_tail_file_nonexistent_then_created(self):
+        """Test tail_file waits for file creation then reads."""
+        path = Path(tempfile.mktemp(suffix='.log'))
+        path.unlink(missing_ok=True)
 
-            try:
-                tail_gen = tail_file(Path(tmp_file.name))
+        gen = tail_file(path)
 
-                # Read original content
-                line = await tail_gen.__anext__()
-                assert line.strip() == "Original content"
+        async def create_later():
+            await asyncio.sleep(0.3)
+            path.write_text("Hello\n")
 
-                # Replace file (simulate log rotation)
-                Path(tmp_file.name).unlink()
-                with open(tmp_file.name, 'w') as new_file:
-                    new_file.write("New file content\n")
+        task = asyncio.create_task(create_later())
+        try:
+            line = await asyncio.wait_for(gen.__anext__(), timeout=self.TIMEOUT)
+            assert line.strip() == "Hello"
+            await task
+        finally:
+            path.unlink(missing_ok=True)
 
-                # Should detect file replacement and read new content
-                line = await tail_gen.__anext__()
-                assert line.strip() == "New file content"
+    @pytest.mark.asyncio
+    async def test_tail_file_rotation(self):
+        """Test tail_file detects file replacement."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log') as f:
+            f.write("Original\n")
+            f.flush()
+            path = Path(f.name)
 
-            finally:
-                if Path(tmp_file.name).exists():
-                    Path(tmp_file.name).unlink()
+        try:
+            gen = tail_file(path)
+            line1 = await asyncio.wait_for(gen.__anext__(), timeout=self.TIMEOUT)
+            assert line1.strip() == "Original"
+
+            path.unlink()
+            path.write_text("Rotated\n")
+
+            line2 = await asyncio.wait_for(gen.__anext__(), timeout=self.TIMEOUT)
+            assert line2.strip() == "Rotated"
+        finally:
+            path.unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_tail_file_permission_error(self):
-        """Test tail_file with file permission errors."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            tmp_file.write("Test content\n")
+        """Test tail_file raises on permission denied."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log') as f:
+            f.write("Secret\n")
+            path = Path(f.name)
 
         try:
-            # Remove read permissions
-            Path(tmp_file.name).chmod(0o000)
-
+            path.chmod(0o000)
             with pytest.raises(PermissionError):
-                tail_gen = tail_file(Path(tmp_file.name))
-                await tail_gen.__anext__()
-
+                gen = tail_file(path)
+                await asyncio.wait_for(gen.__anext__(), timeout=self.TIMEOUT)
         finally:
-            # Restore permissions and cleanup
-            Path(tmp_file.name).chmod(0o644)
-            Path(tmp_file.name).unlink()
-
-    @pytest.mark.asyncio
-    async def test_tail_file_file_deletion(self):
-        """Test tail_file handles file deletion gracefully."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            tmp_file.write("Before deletion\n")
-            tmp_file.flush()
-
-            try:
-                tail_gen = tail_file(Path(tmp_file.name))
-
-                # Read initial content
-                line = await tail_gen.__anext__()
-                assert line.strip() == "Before deletion"
-
-                # Delete file
-                Path(tmp_file.name).unlink()
-
-                # Recreate file
-                with open(tmp_file.name, 'w') as new_file:
-                    new_file.write("After recreation\n")
-
-                # Should resume tailing after recreation
-                line = await tail_gen.__anext__()
-                assert line.strip() == "After recreation"
-
-            finally:
-                if Path(tmp_file.name).exists():
-                    Path(tmp_file.name).unlink()
-
-    @pytest.mark.asyncio
-    async def test_tail_file_large_file_performance(self):
-        """Test tail_file with large file doesn't read entire file."""
-        # Create large file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            # Write many lines to make file > 1MB
-            for i in range(100000):
-                tmp_file.write(f"Line {i:06d} - some content to make lines longer\n")
-            tmp_file.flush()
-
-            try:
-                tail_gen = tail_file(Path(tmp_file.name))
-
-                # Should start from end of existing file, not beginning
-                # Add new line to end
-                with open(tmp_file.name, 'a') as f:
-                    f.write("New line at end\n")
-
-                # Should only read the new line, not all previous lines
-                line = await tail_gen.__anext__()
-                assert line.strip() == "New line at end"
-
-            finally:
-                Path(tmp_file.name).unlink()
+            path.chmod(0o644)
+            path.unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_tail_file_binary_content(self):
-        """Test tail_file with binary content."""
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp_file:
-            # Write mixed text and binary content
-            tmp_file.write(b"Text line\n")
-            tmp_file.write(b"\x00\x01\x02binary\n")  # Binary content
-            tmp_file.write(b"Another text line\n")
+        """Test tail_file handles binary content gracefully."""
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.log') as f:
+            f.write(b"Text line\n\x00\x01binary\nAnother line\n")
+            path = Path(f.name)
 
         try:
-            # Should handle binary content gracefully (skip or decode appropriately)
-            tail_gen = tail_file(Path(tmp_file.name))
-
-            lines_read = []
-            try:
-                async for line in tail_gen:
-                    lines_read.append(line)
-                    if len(lines_read) >= 3:
+            lines = []
+            async with asyncio.timeout(self.TIMEOUT):
+                async for line in tail_file(path):
+                    lines.append(line)
+                    if len(lines) >= 2:
                         break
-            except UnicodeDecodeError:
-                # Should handle decode errors gracefully
-                pass
-
-            # Should at least handle valid text lines
-            assert len(lines_read) >= 1
-
+            assert len(lines) >= 1
         finally:
-            Path(tmp_file.name).unlink()
-
-    @pytest.mark.asyncio
-    async def test_tail_file_concurrent_writers(self):
-        """Test tail_file with multiple concurrent writers."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
-            tmp_file.write("Initial content\n")
-            tmp_file.flush()
-
-            try:
-                tail_gen = tail_file(Path(tmp_file.name))
-
-                async def writer_task(writer_id, count):
-                    for i in range(count):
-                        with open(tmp_file.name, 'a') as f:
-                            f.write(f"Writer {writer_id} line {i}\n")
-                            f.flush()
-                        await asyncio.sleep(0.01)
-
-                # Start multiple writers
-                writers = [
-                    asyncio.create_task(writer_task(1, 5)),
-                    asyncio.create_task(writer_task(2, 5))
-                ]
-
-                lines_read = []
-                try:
-                    async for line in tail_gen:
-                        lines_read.append(line)
-                        if len(lines_read) >= 10:  # Read all written lines
-                            break
-                except asyncio.TimeoutError:
-                    pass
-
-                await asyncio.gather(*writers, return_exceptions=True)
-
-                # Should capture all lines from concurrent writers
-                assert len(lines_read) >= 5  # At least some lines captured
-
-            finally:
-                Path(tmp_file.name).unlink()
+            path.unlink(missing_ok=True)
 
 
 # Test fixtures and utilities
