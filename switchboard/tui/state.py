@@ -136,14 +136,66 @@ class LogEvent:
             return "daemon_started"
         elif "switchboard stopped" in message_lower:
             return "daemon_stopped"
-        elif "claimed" in message_lower and ("mol-" in message_lower or "epic-" in message_lower):
+        elif self._is_well_formed_claimed():
             return "claimed"
-        elif "completed" in message_lower and ("mol-" in message_lower or "epic-" in message_lower):
+        elif self._is_well_formed_completed():
             return "completed"
-        elif "failed" in message_lower and ("mol-" in message_lower or "epic-" in message_lower):
+        elif self._is_well_formed_failed():
             return "failed"
 
         return None
+
+    def _is_well_formed_claimed(self) -> bool:
+        """Check if message is a well-formed 'claimed' event."""
+        message_lower = self.message.lower()
+        if "claimed" not in message_lower:
+            return False
+
+        # Should have mol-xxx or epic-xxx and proper parentheses structure
+        if not (("mol-" in message_lower or "epic-" in message_lower)):
+            return False
+
+        # Check for proper format with parentheses and key parameters
+        if "(" in self.message and ")" in self.message:
+            # Should have agent parameter AND either repo or project parameter
+            if "agent:" in message_lower and ("repo:" in message_lower or "project:" in message_lower):
+                return True
+
+        return False
+
+    def _is_well_formed_completed(self) -> bool:
+        """Check if message is a well-formed 'completed' event."""
+        message_lower = self.message.lower()
+        if "completed" not in message_lower:
+            return False
+
+        # Should have mol-xxx or epic-xxx and proper parentheses structure
+        if not (("mol-" in message_lower or "epic-" in message_lower)):
+            return False
+
+        # Check for proper format with parentheses and key parameters
+        if "(" in self.message and ")" in self.message:
+            # Should have agent parameter (completed events only need agent)
+            if "agent:" in message_lower:
+                return True
+
+        return False
+
+    def _is_well_formed_failed(self) -> bool:
+        """Check if message is a well-formed 'failed' event."""
+        message_lower = self.message.lower()
+        if "failed" not in message_lower:
+            return False
+
+        # Should have mol-xxx or epic-xxx and attempt information
+        if not (("mol-" in message_lower or "epic-" in message_lower)):
+            return False
+
+        # Should have attempt info
+        if "attempt" in message_lower:
+            return True
+
+        return False
 
 
 @dataclass

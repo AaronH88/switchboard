@@ -64,9 +64,13 @@ async def bd_json(args: List[str]) -> Dict[str, Any] | List[Dict[str, Any]]:
                 capture_output=True,
                 text=True,
                 timeout=30,
-                check=True
+                check=False  # Handle return code manually for better test compatibility
             )
         )
+
+        # Check return code manually
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
 
         if not result.stdout.strip():
             raise json.JSONDecodeError("Empty response", "", 0)
