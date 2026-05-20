@@ -11,15 +11,18 @@ Human (in project-a) → /intake "Fix the auth bug"
                          ↓
   Creates bead DAG → shared switchboard DB
                          ↓
-  Switchboard daemon picks up beads
+  Switchboard daemon picks up beads (respects dependency chains)
                          ↓
   For each bead:
-    1. Resolve project + repo from labels
-    2. Create git worktree in the repo
-    3. Launch coding tool (Claude, Goose, Aider, etc.)
-    4. Agent works, commits to branch
+    Agent step:                          Tool step (tool:create-pr):
+    1. Resolve project + repo            1. Resolve project + repo
+    2. Create git worktree               2. Run command directly (no worktree)
+    3. Launch coding tool                3. Close bead on success
+    4. Agent works, commits
     5. Auto-merge into feature branch
-    6. Next agent picks up (sees previous work)
+    6. Next step picks up
+                         ↓
+  Epic completes when all children close
 ```
 
 ## Prerequisites
@@ -62,7 +65,10 @@ python ~/.switchboard/agent_router/run.py
 └── formulas/                        # Workflow templates
 
 ~/project-a/                         # Your project
-├── .claude/agents/ → symlinks       # Agents from switchboard
+├── .claude/agents/                  # Symlinked built-ins + project-specific agents
+│   ├── development.md → symlink     # Built-in from switchboard
+│   ├── verify.md → symlink          # Built-in from switchboard
+│   └── go-security-scan.md          # Project-specific (BYOA)
 ├── .claude/skills/intake/ → symlink # Intake skill from switchboard
 ├── project.yaml                     # Project-specific config
 └── src/                             # Your code
@@ -102,12 +108,21 @@ repos:
     path: ./frontend
     verify: "npm test && npm run lint"
 
+# Optional: project-specific agents (overrides built-in agents of the same name)
+agents_dir: .claude/agents
+
 pipelines:
   dev: [tdd, interface, tests, development, verify, review]
   quick-fix: [development, verify]
   review: [review]
   docs: [docs-writer, verify]
-  test-only: [tdd, tests, verify]
+  deploy: [development, verify, tool:create-pr]  # Mix agents and tools
+
+# Shell commands that run as pipeline steps (no worktree, no AI)
+pipeline_tools:
+  create-pr:
+    command: ["gh", "pr", "create", "--title", "[switchboard] {epic_title}", "--head", "{branch}"]
+    cwd: repo
 
 coding_tools:
   claude:
@@ -124,7 +139,7 @@ agent_tools:
 
 ### Named pipelines
 
-Pipelines are named sequences of agents. Different operations use different pipelines:
+Pipelines are named sequences of agents and/or tool steps:
 
 ```yaml
 pipelines:
@@ -132,8 +147,10 @@ pipelines:
   quick-fix:  [development, verify]                                  # Fast bugfix
   review:     [review]                                               # PR review
   test-only:  [tdd, tests, verify]                                   # Add coverage
-  docs:       [docs-writer, verify]                                  # Documentation
+  deploy:     [development, verify, tool:create-pr]                  # Code + PR
 ```
+
+Steps prefixed with `tool:` run shell commands (see [Pipeline tools](#pipeline-tools)). All other steps are agents.
 
 When you run `/intake`, it asks which pipeline to use.
 
@@ -162,6 +179,47 @@ Template variables:
 - `{prompt}` — inline prompt text
 - `{worktree}` — path to the agent's worktree
 
+### Pipeline tools
+
+Pipeline steps prefixed with `tool:` run shell commands directly — no worktree, no AI agent. Useful for PR creation, notifications, deployments, or any scripted action.
+
+```yaml
+pipeline_tools:
+  create-pr:
+    command: ["gh", "pr", "create", "--title", "[switchboard] {epic_title}", "--head", "{branch}"]
+    cwd: repo
+  notify:
+    command: ["curl", "-X", "POST", "-d", "Done: {epic_title}", "https://hooks.slack.com/..."]
+    cwd: project
+```
+
+Template variables: `{repo}`, `{branch}`, `{bead_id}`, `{epic_id}`, `{epic_title}`, `{project}`
+
+The `cwd` option controls where the command runs: `repo` (default), `project`, or `switchboard`.
+
+### Bring Your Own Agents (BYOA)
+
+Projects can define their own agents alongside switchboard's built-ins. Set `agents_dir` in `project.yaml`:
+
+```yaml
+agents_dir: .claude/agents
+```
+
+The daemon checks the project's agents directory first, then falls back to switchboard's built-in agents. This means projects can:
+- Add project-specific agents (e.g., `go-security-scan.md`)
+- Override built-in agents (e.g., a custom `verify.md` with project-specific checks)
+
+Agent format is the same — Markdown with YAML frontmatter:
+
+```markdown
+---
+name: go-security-scan
+description: Run gosec and custom security checks
+---
+
+You are a security scanning agent. ...
+```
+
 ## Built-in agents
 
 | Agent | Role | Produces |
@@ -176,18 +234,17 @@ Template variables:
 
 ### Adding custom agents
 
-Create a `.md` file in `agents/`:
+**Project-specific agents** (recommended): Add a `.md` file to your project's `agents_dir` (see [BYOA](#bring-your-own-agents-byoa)):
 
-```markdown
----
-name: docs-writer
-description: Write project documentation
----
-
-You are the Documentation agent. ...
+```bash
+# In your project
+echo '---\nname: docs-writer\ndescription: Write docs\n---\nYou are the Documentation agent.' \
+  > .claude/agents/docs-writer.md
 ```
 
-Then use it in a pipeline: `docs: [docs-writer, verify]`
+**Global agents**: Add a `.md` file to switchboard's `agents/` directory. Available to all projects.
+
+Then reference it in a pipeline: `docs: [docs-writer, verify]`
 
 ## Monitoring
 
