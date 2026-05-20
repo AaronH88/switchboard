@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 from pathlib import Path
 import argparse
 import subprocess
+import io
 
 from switchboard.tui import cli, __main__
 
@@ -187,17 +188,20 @@ class TestCliArgumentParsing:
             pytest.skip("Permission modification not supported on this system")
 
     def test_cli_version_argument(self):
-        """Test --version argument (if implemented)."""
-        try:
-            with patch('sys.argv', ['switchboard-tui', '--version']):
+        """Test --version prints version string and exits with code 0."""
+        with patch('sys.argv', ['switchboard-tui', '--version']):
+            # Capture stdout since argparse prints version to stdout by default
+            captured_output = io.StringIO()
+            with patch('sys.stdout', captured_output):
                 with pytest.raises(SystemExit) as exc_info:
                     cli.parse_arguments()
 
-                # Should exit successfully
+                # Should exit with code 0 (success)
                 assert exc_info.value.code == 0
-        except AttributeError:
-            # Version argument might not be implemented yet
-            pytest.skip("Version argument not implemented")
+
+                # Should print the version string
+                version_output = captured_output.getvalue().strip()
+                assert version_output == "switchboard-tui 1.0.0"
 
 
 class TestPythonModuleInvocation:
