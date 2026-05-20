@@ -45,50 +45,44 @@ class PatchPanel(Static):
                 pass
             return
 
-        # Create content for all pipelines
-        content_widgets = []
+        # Build all pipeline text and update in one call
+        lines = []
         for epic_id in sorted(self.state.pipelines.keys()):
             pipeline = self.state.pipelines[epic_id]
-            content_widgets.append(self._render_pipeline(pipeline))
+            lines.append(self._render_pipeline_text(pipeline))
 
-        # Update the content
         try:
-            self.mount(Vertical(*content_widgets))
+            self.update(Text("\n\n".join(lines)))
         except Exception:
-            # Handle case when widget is not mounted (during testing)
             pass
 
-    def _render_pipeline(self, pipeline: PipelineState) -> Static:
-        """Render a single pipeline as a text widget."""
-        # Pipeline title
+    def _render_pipeline_text(self, pipeline: PipelineState) -> str:
+        """Render a single pipeline as text."""
         title = f"{pipeline.project} / {pipeline.repo}  #{pipeline.epic_id}"
-
-        # Progress counter
         completed_count = len([s for s in pipeline.steps if s.status == "closed"])
         total_count = len(pipeline.steps)
         progress = f"{completed_count}/{total_count} done"
 
-        # Step boxes
         step_display = []
         for step in pipeline.steps:
             label = self._get_step_label(step.agent)
             status_symbol = self._get_status_symbol(step.status)
             step_display.append(f"{label} {status_symbol}")
 
-        # Build the display
+        step_row = " │ ".join(step_display)
+        width = len(step_row) + 4
         lines = [
             f"{title}  {progress}",
-            "┌" + "─" * 60 + "┐",
-            "│ " + " │ ".join(step_display) + " │",
-            "└" + "─" * 60 + "┘"
+            "┌" + "─" * (width - 2) + "┐",
+            "│ " + step_row + " │",
+            "└" + "─" * (width - 2) + "┘",
         ]
 
-        # Check for active worker
         worker_info = self._get_worker_info_for_pipeline(pipeline)
         if worker_info:
             lines.append(worker_info)
 
-        return Static(Text("\n".join(lines)))
+        return "\n".join(lines)
 
     def _get_step_label(self, agent: str) -> str:
         """Get abbreviated label for step agent."""

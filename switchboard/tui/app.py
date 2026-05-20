@@ -113,14 +113,11 @@ class SwitchboardApp(App):
             workers = await poll_workers()
             self.state = self.state.reconcile_workers(workers)
 
-            # Refresh relevant widgets
-            active_lines = self.query_one(ActiveLines)
-            active_lines.update_state(self.state)
-
-            operator_panel = self.query_one(OperatorPanel)
-            operator_panel.update_state(self.state)
-        except Exception as e:
-            # Handle polling errors gracefully
+            self.query_one(ActiveLines).update_state(self.state)
+            self.query_one(OperatorPanel).update_state(self.state)
+            self.query_one(ProjectsPanel).update_state(self.state)
+            self.query_one(SwitchboardHeader).update_state(self.state)
+        except Exception:
             pass
 
     async def _poll_pipelines(self) -> None:
@@ -139,11 +136,15 @@ class SwitchboardApp(App):
         """Poll stats and update state."""
         try:
             stats_data = await poll_stats()
-            # Update stats in state
-            operator_panel = self.query_one(OperatorPanel)
-            operator_panel.update_state(self.state)
-        except Exception as e:
-            # Handle polling errors gracefully
+            summary = stats_data.get("summary", stats_data) if isinstance(stats_data, dict) else {}
+            from .state import StatsSnapshot
+            self.state = self.state.update_stats(StatsSnapshot(
+                completed_today=int(summary.get("closed_issues", 0)),
+                failed_today=int(summary.get("blocked_issues", 0)),
+                blocked_count=int(summary.get("blocked_issues", 0)),
+            ))
+            self.query_one(OperatorPanel).update_state(self.state)
+        except Exception:
             pass
 
     async def _watch_daemon_log(self) -> None:
