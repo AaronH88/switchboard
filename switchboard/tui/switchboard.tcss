@@ -1,0 +1,190 @@
+/* Switchboard TUI Textual CSS Theme - Amber CRT Style */
+
+/* Color Variables */
+$bg: #0a0a0f;
+$amber: #ffb000;
+$amber-dim: #8b7500;
+$green: #00ff41;
+$green-dim: #2d6a2e;
+$red: #ff3333;
+$cream: #ffd799;
+$gray: #666655;
+
+/* Screen Background */
+Screen {
+    background: $bg;
+    color: $amber;
+    border: none;
+}
+
+/* Text Colors */
+.text-amber {
+    color: $amber;
+}
+
+.text-amber-dim {
+    color: $amber-dim;
+}
+
+.text-green {
+    color: $green;
+}
+
+.text-green-dim {
+    color: $green-dim;
+}
+
+.text-red {
+    color: $red;
+}
+
+.text-cream {
+    color: $cream;
+}
+
+.text-gray {
+    color: $gray;
+}
+
+/* Border Colors */
+.border-amber {
+    border: solid $amber;
+}
+
+.border-amber-dim {
+    border: solid $amber-dim;
+}
+
+.border-green {
+    border: solid $green;
+}
+
+.border-red {
+    border: solid $red;
+}
+
+/* Background Colors */
+.bg-amber {
+    background: $amber;
+    color: $bg;
+}
+
+.bg-amber-dim {
+    background: $amber-dim;
+    color: $cream;
+}
+
+.bg-green {
+    background: $green;
+    color: $bg;
+}
+
+.bg-green-dim {
+    background: $green-dim;
+    color: $cream;
+}
+
+.bg-red {
+    background: $red;
+    color: $cream;
+}
+
+.bg-gray {
+    background: $gray;
+    color: $cream;
+}
+
+/* Widget-specific Styles for Future Use */
+
+Static {
+    background: transparent;
+    color: $amber;
+    border: none;
+}
+
+Button {
+    background: $amber-dim;
+    color: $bg;
+    border: solid $amber;
+}
+
+Button:hover {
+    background: $amber;
+    color: $bg;
+}
+
+Button:focus {
+    border: solid $cream;
+}
+
+Input {
+    background: $bg;
+    color: $amber;
+    border: solid $amber-dim;
+}
+
+Input:focus {
+    border: solid $amber;
+}
+
+Label {
+    color: $amber;
+    background: transparent;
+}
+
+Header {
+    background: $amber-dim;
+    color: $bg;
+    border: solid $amber;
+}
+
+Footer {
+    background: $amber-dim;
+    color: $bg;
+    border: solid $amber;
+}
+
+.status-running {
+    color: $green;
+}
+
+.status-completed {
+    color: $green-dim;
+}
+
+.status-failed {
+    color: $red;
+}
+
+.status-blocked {
+    color: $amber-dim;
+}
+
+.status-pending {
+    color: $gray;
+}
+
+.highlight {
+    background: $amber;
+    color: $bg;
+}
+
+.dim {
+    color: $amber-dim;
+}
+
+.error {
+    color: $red;
+}
+
+.success {
+    color: $green;
+}
+
+.warning {
+    color: $amber;
+}
+
+.info {
+    color: $cream;
+}
