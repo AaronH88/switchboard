@@ -148,7 +148,7 @@ class SwitchboardApp(App):
     async def _watch_daemon_log(self) -> None:
         """Watch daemon log and add events to PartyLine."""
         try:
-            log_path = Path(self.artifacts_dir) / "agent_router.log"
+            log_path = Path(self.artifacts_dir) / "switchboard.log"
             async for line in tail_file(log_path):
                 # Parse and add log event
                 from .polling import parse_log_line
@@ -192,7 +192,7 @@ class SwitchboardApp(App):
     def _check_daemon_status(self) -> None:
         """Check if daemon is online by looking at log file modification time."""
         try:
-            log_path = Path(self.artifacts_dir) / "agent_router.log"
+            log_path = Path(self.artifacts_dir) / "switchboard.log"
 
             if not log_path.exists():
                 daemon_online = False

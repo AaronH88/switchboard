@@ -73,7 +73,7 @@ async def bd_json(args: List[str]) -> Dict[str, Any] | List[Dict[str, Any]]:
             raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
 
         if not result.stdout.strip():
-            raise json.JSONDecodeError("Empty response", "", 0)
+            return []
 
         return json.loads(result.stdout)
 
@@ -91,17 +91,13 @@ async def poll_workers() -> List[Dict[str, Any]]:
     """Poll workers using bd CLI."""
     data = await bd_json(["bd", "list", "--status=in_progress", "--json"])
 
-    if not isinstance(data, dict):
-        raise TypeError("Expected dict response from bd list")
+    if isinstance(data, list):
+        return data
 
-    if "beads" not in data:
-        raise KeyError("Missing 'beads' key in response")
+    if isinstance(data, dict) and "beads" in data:
+        return data["beads"]
 
-    beads = data["beads"]
-    if not isinstance(beads, list):
-        raise TypeError("Expected 'beads' to be a list")
-
-    return beads
+    return []
 
 
 async def poll_stats() -> Dict[str, Any]:
