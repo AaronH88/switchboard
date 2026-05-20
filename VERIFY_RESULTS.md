@@ -5,34 +5,35 @@
 
 ## Required Verification Steps
 
-### ❌ Step 1: Signature Widget Tests (`python -m pytest switchboard/tests/tui/test_signature_widgets.py -v`)
+### ❌ Step 1: Signature Widget Tests (`cd switchboard && python -m pytest tests/tui/test_signature_widgets.py -v`)
 **Status:** FAILED  
 **Error:** `ModuleNotFoundError: No module named 'textual.testing'`
 
 **Details:**
 ```
 ImportError while importing test module '/Users/ahetheri/nexus_workarea/switchboard/worktrees/switchboard-8ab/switchboard/tests/tui/test_signature_widgets.py'.
+Hint: make sure your test modules/packages have valid Python names.
 Traceback:
-switchboard/tests/tui/test_signature_widgets.py:7: in <module>
+tests/tui/test_signature_widgets.py:7: in <module>
     from textual.testing import AppTester
 E   ModuleNotFoundError: No module named 'textual.testing'
 ```
 
-### ❌ Step 2: All TUI Tests (`python -m pytest switchboard/tests/tui/ -v`)
+### ❌ Step 2: All TUI Tests (`cd switchboard && python -m pytest tests/tui/ -v`)
 **Status:** FAILED  
 **Error:** Multiple import errors due to missing textual dependency
 
 **Details:**
 ```
-ERROR collecting switchboard/tests/tui/test_app.py
+ERROR collecting tests/tui/test_app.py
 ImportError while importing test module:
-switchboard/tests/tui/test_app.py:6: in <module>
+tests/tui/test_app.py:6: in <module>
     from textual.testing import AppTest
 E   ModuleNotFoundError: No module named 'textual.testing'
 
-ERROR collecting switchboard/tests/tui/test_signature_widgets.py
+ERROR collecting tests/tui/test_signature_widgets.py
 ImportError while importing test module:
-switchboard/tests/tui/test_signature_widgets.py:7: in <module>
+tests/tui/test_signature_widgets.py:7: in <module>
     from textual.testing import AppTester
 E   ModuleNotFoundError: No module named 'textual.testing'
 ```
@@ -75,7 +76,7 @@ tests/test_worker_agent_file.py::test_build_prompt_preserves_other_functionality
 tests/test_worker_agent_file.py::test_launch_signature_change PASSED
 tests/test_worker_agent_file.py::test_launch_with_none_agent_file PASSED
 
-=================== 15 passed in 0.07s ===================
+=================== 15 passed in 0.10s ===================
 ```
 
 ## Root Cause Analysis
