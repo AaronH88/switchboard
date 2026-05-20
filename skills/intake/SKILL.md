@@ -49,6 +49,8 @@ cd <repo-path> && git checkout -b feature/<slug> main
 
 **CRITICAL**: Use `bd create --graph` to create all beads atomically.
 
+**CRITICAL**: Pipeline edges MUST use `"type": "blocks"`, NOT `"type": "depends_on"`. The `depends_on` type creates informational links that do NOT prevent the daemon from picking up downstream steps. Only `blocks` makes a bead wait until its upstream dependency is closed.
+
 Read the selected pipeline from `project.yaml` to determine which steps to include. Build the graph JSON with those steps chained in order.
 
 Pipeline steps are either **agents** (bare names like `development`) or **tools** (prefixed like `tool:create-pr`).
@@ -89,7 +91,7 @@ Every bead MUST also have:
   ],
   "edges": [
     {"from_key": "<step>", "to_key": "epic", "type": "parent"},
-    {"from_key": "<step2>", "to_key": "<step1>", "type": "depends_on"}
+    {"from_key": "<step2>", "to_key": "<step1>", "type": "blocks"}
   ]
 }
 ```
@@ -103,15 +105,24 @@ EOF
 bd create --graph /tmp/bead-graph.json
 ```
 
-### 6. Verify descriptions are complete
+### 6. Verify blocking dependencies
+
+After creating the graph, run `bd ready` and `bd blocked` to confirm:
+- Only the **first** pipeline step (and the epic) should appear in `bd ready`
+- All downstream steps should appear in `bd blocked`
+
+If all steps show as ready, the edges used `depends_on` instead of `blocks` — delete and recreate.
+
+### 7. Verify descriptions are complete
 
 Each bead description MUST include work-specific context. For verify beads, use the verify command from the repo's entry in `project.yaml`.
 
-### 7. Confirm with human
+### 8. Confirm with human
 
 ```bash
 bd list --parent <epic-id>
 bd ready
+bd blocked
 ```
 
 Tell the human:
