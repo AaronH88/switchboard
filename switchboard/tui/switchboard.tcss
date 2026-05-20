@@ -188,3 +188,51 @@ Footer {
 .info {
     color: $cream;
 }
+
+/* Layout Structure */
+SwitchboardHeader {
+    dock: top;
+    height: 3;
+}
+
+Horizontal {
+    height: auto;
+}
+
+OperatorPanel {
+    width: 20%;
+    border: solid $amber-dim;
+    margin: 1;
+}
+
+ProjectsPanel {
+    width: 20%;
+    border: solid $amber-dim;
+    margin: 1;
+}
+
+PatchPanel {
+    height: 50%;
+    border: solid $amber;
+    margin: 1;
+    overflow-y: auto;
+}
+
+ActiveLines {
+    height: auto;
+    border: solid $amber-dim;
+    margin: 1;
+}
+
+PartyLine {
+    height: 10;
+    dock: bottom;
+    border: solid $amber;
+    margin: 1;
+    overflow-y: auto;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+}
