@@ -77,6 +77,7 @@ def _build_project_registry(sb_config: dict) -> dict:
             "agent_tools": local_config.get("agent_tools", {}),
             "pipelines": local_config.get("pipelines", {}),
             "agents_dir": agents_dir,
+            "pipeline_tools": local_config.get("pipeline_tools", {}),
         }
     return registry
 
@@ -164,6 +165,86 @@ def _resolve_tool_config(agent: str, project_name: str, registry: dict) -> dict 
         return None
     tool_name = project["agent_tools"].get(agent, project["default_tool"])
     return project["coding_tools"].get(tool_name)
+
+
+def _get_branch_name(repo_path: str) -> str | None:
+    """Get the current branch name of a repo."""
+    result = subprocess.run(
+        ["git", "-C", repo_path, "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return None if branch == "HEAD" else branch
+
+
+def _get_parent_epic_info(bead_id: str) -> tuple[str, str]:
+    """Get the parent epic's id and title for a bead."""
+    result = subprocess.run(
+        ["bd", "show", bead_id, "--json"],
+        capture_output=True, text=True, cwd=SWITCHBOARD_DIR,
+    )
+    if result.returncode != 0:
+        return ("", "")
+    try:
+        data = json.loads(result.stdout)
+        bead = data[0] if isinstance(data, list) else data
+        for dep in bead.get("dependencies") or []:
+            if dep.get("dependency_type") == "parent":
+                return (dep.get("id", ""), dep.get("title", ""))
+    except (json.JSONDecodeError, IndexError):
+        pass
+    return ("", "")
+
+
+def _resolve_tool_cwd(cwd_setting: str, repo_path: str, project_path: str) -> str:
+    """Resolve the working directory for a pipeline tool."""
+    if cwd_setting == "project":
+        return project_path
+    if cwd_setting == "switchboard":
+        return SWITCHBOARD_DIR
+    return repo_path
+
+
+def _run_pipeline_tool(
+    tool_name: str, bead_id: str, project_name: str, repo_path: str,
+    registry: dict, artifacts_dir: str,
+) -> subprocess.Popen:
+    """Launch a pipeline tool step (no worktree, runs directly)."""
+    project = registry[project_name]
+    tool_cfg = project["pipeline_tools"][tool_name]
+
+    branch = _get_branch_name(repo_path)
+    epic_id, epic_title = _get_parent_epic_info(bead_id)
+
+    variables = {
+        "{repo}": repo_path,
+        "{branch}": branch or "",
+        "{bead_id}": bead_id,
+        "{epic_id}": epic_id,
+        "{epic_title}": epic_title,
+        "{project}": project_name,
+    }
+
+    cmd = []
+    for part in tool_cfg["command"]:
+        for var, val in variables.items():
+            part = part.replace(var, val)
+        cmd.append(part)
+
+    cwd = _resolve_tool_cwd(tool_cfg.get("cwd", "repo"), repo_path, project["path"])
+
+    log_dir = Path(artifacts_dir) / "logs" / bead_id
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log.info("Running tool '%s' for %s: %s", tool_name, bead_id, " ".join(cmd))
+
+    return subprocess.Popen(
+        cmd, cwd=cwd,
+        stdout=open(log_dir / "stdout.log", "w"),
+        stderr=open(log_dir / "stderr.log", "w"),
+    )
 
 
 # --- Bead operations (all use SWITCHBOARD_DIR as cwd for the shared beads DB) ---
@@ -327,8 +408,9 @@ def main():
                 continue
 
             agent = _extract_label(bead, "agent:")
-            if not agent:
-                log.warning("Bead %s has no agent: label, skipping", bead_id)
+            tool = _extract_label(bead, "tool:")
+            if not agent and not tool:
+                log.warning("Bead %s has no agent: or tool: label, skipping", bead_id)
                 continue
 
             project_name = _extract_label(bead, "project:")
@@ -348,39 +430,65 @@ def main():
                 log.info("Auto-closed integrate bead %s (router handles merging)", bead_id)
                 continue
 
-            agent_file = _resolve_agent_file(agent, project_name, registry, agents_dir)
-            if not agent_file:
-                log.warning("No agent definition for '%s', skipping %s", agent, bead_id)
-                continue
-
             if _has_open_dependencies(bead_id):
                 continue
 
-            if not claim_bead(bead_id):
-                log.warning("Failed to claim %s", bead_id)
-                continue
+            if tool:
+                # Tool step — validate config exists before claiming
+                project_entry = registry.get(project_name, {})
+                tool_cfg = project_entry.get("pipeline_tools", {}).get(tool)
+                if not tool_cfg:
+                    log.warning("No pipeline_tools config for '%s', skipping %s", tool, bead_id)
+                    continue
 
-            log.info("Claimed %s (project: %s, agent: %s, repo: %s)",
-                     bead_id, project_name, agent, repo_name)
+                if not claim_bead(bead_id):
+                    log.warning("Failed to claim %s", bead_id)
+                    continue
 
-            try:
-                wt_path = worktree.create(bead_id, agent, repo_path, worktrees_dir)
-            except RuntimeError as e:
-                log.error("Worktree creation failed for %s: %s", bead_id, e)
-                requeue_bead(bead_id, 0)
-                continue
+                log.info("Claimed %s (project: %s, tool: %s, repo: %s)",
+                         bead_id, project_name, tool, repo_name)
 
-            bead_context = worker.fetch_bead_context(bead_id, SWITCHBOARD_DIR)
-            tool_cfg = _resolve_tool_config(agent, project_name, registry)
-            proc = worker.launch(agent, bead_id, wt_path, agent_file, artifacts_dir,
-                                 bead_context, repo_path, tool_cfg)
-            active[bead_id] = {
-                "process": proc,
-                "agent": agent,
-                "repo": repo_path,
-                "project": project_name,
-                "worktree": wt_path,
-            }
+                proc = _run_pipeline_tool(tool, bead_id, project_name, repo_path,
+                                          registry, artifacts_dir)
+                active[bead_id] = {
+                    "process": proc,
+                    "agent": f"tool:{tool}",
+                    "repo": repo_path,
+                    "project": project_name,
+                    "worktree": None,
+                }
+            else:
+                # Agent step — existing behavior (worktree + coding tool)
+                agent_file = _resolve_agent_file(agent, project_name, registry, agents_dir)
+                if not agent_file:
+                    log.warning("No agent definition for '%s', skipping %s", agent, bead_id)
+                    continue
+
+                if not claim_bead(bead_id):
+                    log.warning("Failed to claim %s", bead_id)
+                    continue
+
+                log.info("Claimed %s (project: %s, agent: %s, repo: %s)",
+                         bead_id, project_name, agent, repo_name)
+
+                try:
+                    wt_path = worktree.create(bead_id, agent, repo_path, worktrees_dir)
+                except RuntimeError as e:
+                    log.error("Worktree creation failed for %s: %s", bead_id, e)
+                    requeue_bead(bead_id, 0)
+                    continue
+
+                bead_context = worker.fetch_bead_context(bead_id, SWITCHBOARD_DIR)
+                coding_tool_cfg = _resolve_tool_config(agent, project_name, registry)
+                proc = worker.launch(agent, bead_id, wt_path, agent_file, artifacts_dir,
+                                     bead_context, repo_path, coding_tool_cfg)
+                active[bead_id] = {
+                    "process": proc,
+                    "agent": agent,
+                    "repo": repo_path,
+                    "project": project_name,
+                    "worktree": wt_path,
+                }
 
         completed = []
         for bead_id, info in active.items():
@@ -391,16 +499,20 @@ def main():
             completed.append(bead_id)
 
             if exit_code == 0:
-                merged = worktree.merge_to_feature_branch(
-                    bead_id, info["agent"], info["repo"],
-                )
-                if merged:
-                    close_bead(bead_id)
-                    log.info("Completed %s (agent: %s)", bead_id, info["agent"])
+                if info["worktree"]:
+                    merged = worktree.merge_to_feature_branch(
+                        bead_id, info["agent"], info["repo"],
+                    )
+                    if merged:
+                        close_bead(bead_id)
+                        log.info("Completed %s (agent: %s)", bead_id, info["agent"])
+                    else:
+                        log.warning("Merge conflict for %s, creating integrate bead", bead_id)
+                        _create_conflict_bead(bead_id, info["agent"], info["repo"], info["project"])
+                        close_bead(bead_id)
                 else:
-                    log.warning("Merge conflict for %s, creating integrate bead", bead_id)
-                    _create_conflict_bead(bead_id, info["agent"], info["repo"], info["project"])
                     close_bead(bead_id)
+                    log.info("Completed %s (%s)", bead_id, info["agent"])
             else:
                 detail = get_bead_metadata(bead_id)
                 metadata = detail.get("metadata") or {}
@@ -414,7 +526,8 @@ def main():
                     block_bead(bead_id)
                     log.error("Failed %s after %d attempts, blocked", bead_id, max_attempts)
 
-            worktree.remove(bead_id, info["repo"], worktrees_dir)
+            if info["worktree"]:
+                worktree.remove(bead_id, info["repo"], worktrees_dir)
 
         for bead_id in completed:
             del active[bead_id]
