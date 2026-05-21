@@ -34,7 +34,7 @@ Human (in project-a) → /intake "Fix the auth bug"
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (or another coding tool)
 - [beads CLI](https://github.com/gastownhall/beads) (`bd`)
 - Git
-- Python 3.10+ with PyYAML (`pip install pyyaml`)
+- Python 3.10+ with PyYAML and watchfiles (`pip install pyyaml watchfiles`)
 
 ## Quick start
 
@@ -179,6 +179,16 @@ on_epic_complete: [quality-gate, ship]
 # When epic completes: verify → review → create-pr
 ```
 
+### Dynamic config reloading
+
+The daemon watches `switchboard.yaml` and all `project.yaml` files for changes. When you save a config file, the daemon reloads the project registry automatically — no restart needed. This means you can:
+
+- Add new projects to `switchboard.yaml`
+- Change pipelines, tools, or `on_epic_complete` hooks in `project.yaml`
+- Add or remove repos
+
+Active workers are not interrupted during reload. Requires `watchfiles` (falls back to 60s polling if not installed).
+
 ### Configuring coding tools
 
 Different tools for different agents:
@@ -268,24 +278,6 @@ echo '---\nname: docs-writer\ndescription: Write docs\n---\nYou are the Document
 
 Then reference it in a pipeline: `docs: [docs-writer, verify]`
 
-## TUI (Terminal UI)
-
-A retro switchboard-themed dashboard for watching the daemon work:
-
-```bash
-cd <project> && python -m switchboard.tui
-```
-
-Shows:
-- **Operator Panel** — active worker count, completed/failed/blocked stats
-- **Projects** — registered projects with signal lamps
-- **Patch Panel** — pipeline steps as horizontal boxes with signal lamps
-- **Active Lines** — running workers with bead ID, agent, repo, tool
-- **Party Line** — daemon log events in operator jargon
-- **Footer** — keybindings and daemon status
-
-Dependencies: `pip install textual watchfiles`
-
 ## Monitoring
 
 ```bash
@@ -303,9 +295,6 @@ cd <repo> && git log --oneline feature/<slug>
 
 # Bead status
 cd ~/.switchboard && bd list
-
-# TUI dashboard
-cd <project> && python -m switchboard.tui
 ```
 
 ## Adding a new project
