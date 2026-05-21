@@ -138,13 +138,25 @@ def _check_epic_completion(bead_id: str) -> bool:
         return False
 
 
+def _resolve_epic_hook_steps(project_entry: dict) -> list[str]:
+    """Resolve on_epic_complete to a flat list of steps from one or more pipelines."""
+    hook_cfg = project_entry.get("on_epic_complete")
+    if not hook_cfg:
+        return []
+    pipeline_names = [hook_cfg] if isinstance(hook_cfg, str) else list(hook_cfg)
+    pipelines = project_entry.get("pipelines", {})
+    steps = []
+    for name in pipeline_names:
+        if name not in pipelines:
+            log.warning("on_epic_complete references unknown pipeline '%s'", name)
+            continue
+        steps.extend(pipelines[name])
+    return steps
+
+
 def _should_fire_epic_hooks(bead_id: str, project_entry: dict) -> bool:
     """Check if epic hooks should fire: configured + not already fired."""
-    pipeline_name = project_entry.get("on_epic_complete")
-    if not pipeline_name:
-        return False
-    if pipeline_name not in project_entry.get("pipelines", {}):
-        log.warning("on_epic_complete references unknown pipeline '%s'", pipeline_name)
+    if not _resolve_epic_hook_steps(project_entry):
         return False
     result = subprocess.run(
         ["bd", "show", bead_id, "--json"],
@@ -167,9 +179,10 @@ def _fire_epic_hooks(
     bead_id: str, project_name: str, project_entry: dict, registry: dict
 ) -> None:
     """Create hook pipeline beads as children of the epic."""
-    pipeline_name = project_entry["on_epic_complete"]
-    steps = project_entry["pipelines"][pipeline_name]
-    log.info("Firing epic hooks for %s (pipeline: %s): %s", bead_id, pipeline_name, steps)
+    steps = _resolve_epic_hook_steps(project_entry)
+    hook_cfg = project_entry["on_epic_complete"]
+    pipeline_names = [hook_cfg] if isinstance(hook_cfg, str) else list(hook_cfg)
+    log.info("Firing epic hooks for %s (pipelines: %s): %s", bead_id, pipeline_names, steps)
 
     result = subprocess.run(
         ["bd", "show", bead_id, "--json"],

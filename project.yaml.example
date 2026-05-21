@@ -50,9 +50,13 @@ pipelines:
   #   - verify
   #   - tool:create-pr                  # Runs a shell command, no worktree
 
-# Epic-level hooks — run a named pipeline when ALL children of an epic close.
+# Epic-level hooks — run named pipeline(s) when ALL children of an epic close.
 # The pipeline steps become children of the epic and must complete before it closes.
 # Hooks fire once per epic (tracked via metadata.hooks_fired).
+# Single pipeline:
+#   on_epic_complete: ship
+# Compose multiple pipelines (steps are concatenated in order):
+#   on_epic_complete: [quality-gate, ship]
 on_epic_complete: ship
 
 # Pipeline tools — shell commands that run as pipeline steps.
