@@ -3,3 +3,4 @@ max_workers: 3
 artifacts_dir: artifacts
 worktrees_dir: worktrees
 agents_dir: .claude/agents
+config_reload_interval: 60

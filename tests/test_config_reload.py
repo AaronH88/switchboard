@@ -118,6 +118,7 @@ class TestRegistryReloading:
         # Update config to add new project
         updated_config = initial_config.copy()
         updated_config["projects"]["project_c"] = {"path": str(tmp_path / "project_c")}
+        switchboard_yaml.write_text(yaml.safe_dump(updated_config))
 
         project_c_dir = tmp_path / "project_c"
         project_c_dir.mkdir()
@@ -320,19 +321,27 @@ class TestMainLoopIntegration:
         mock_sleep.side_effect = KeyboardInterrupt()
 
         with patch('run.load_switchboard_config') as mock_load_sb:
-            mock_load_sb.return_value = {"projects": {}}
+            with patch('run.load_project_config') as mock_load_proj:
+                mock_load_sb.return_value = {
+                    "projects": {
+                        "test_project": {"path": "/fake/path"}
+                    }
+                }
+                mock_load_proj.return_value = {
+                    "repos": [{"name": "app", "path": "./app"}]
+                }
 
-            with patch('run._should_reload_config') as mock_should_reload:
-                mock_should_reload.return_value = False
+                with patch('run._should_reload_config_bulk') as mock_should_reload:
+                    mock_should_reload.return_value = False
 
-                # Should not crash and should call reload check functions
-                try:
-                    main()
-                except KeyboardInterrupt:
-                    pass  # Expected from our mock
+                    # Should not crash and should call reload check functions
+                    try:
+                        main()
+                    except KeyboardInterrupt:
+                        pass  # Expected from our mock
 
-                # Once integration is implemented, we can verify the calls
-                # mock_should_reload.assert_called()
+                    # Once integration is implemented, we can verify the calls
+                    # mock_should_reload.assert_called()
 
     @patch('subprocess.run')
     def test_registry_reload_during_active_worker_execution(self, mock_subprocess, tmp_path):
@@ -397,14 +406,11 @@ class TestErrorHandling:
         # Write invalid YAML
         switchboard_yaml.write_text("invalid: yaml: content: [unclosed")
 
-        with patch('logging.getLogger') as mock_logger:
-            logger_instance = Mock()
-            mock_logger.return_value = logger_instance
-
+        with patch('run.log') as mock_logger:
             result = _reload_config(str(switchboard_yaml))
 
             # Should log the error (exact log message TBD during implementation)
-            assert logger_instance.error.called or logger_instance.warning.called
+            assert mock_logger.error.called or mock_logger.warning.called
 
     def test_nonexistent_project_directories_handled(self, tmp_path):
         """Test behavior when project directories referenced in config don't exist."""
