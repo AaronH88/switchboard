@@ -62,6 +62,7 @@ def _build_project_registry(sb_config: dict) -> dict:
             repo_path = repo.get("path", "")
             if not os.path.isabs(repo_path):
                 repo_path = os.path.join(project_path, repo_path)
+            repo_path = os.path.normpath(repo_path)
             repos_by_name[repo["name"]] = {
                 "path": repo_path,
                 "verify": repo.get("verify", ""),
@@ -396,6 +397,94 @@ def _resolve_tool_cwd(cwd_setting: str, repo_path: str, project_path: str) -> st
     return repo_path
 
 
+# --- Config Reloading Functions ---
+
+def _get_config_mtimes(sb_config_path: str, registry: dict) -> dict[str, float]:
+    """Get modification times of switchboard.yaml and all project.yaml files."""
+    mtimes = {}
+
+    # Track switchboard.yaml
+    if os.path.exists(sb_config_path):
+        mtimes[sb_config_path] = os.path.getmtime(sb_config_path)
+
+    # Track each project's project.yaml
+    for project_name, project_data in registry.items():
+        project_path = project_data.get("path")
+        if project_path:
+            project_yaml_path = os.path.join(project_path, "project.yaml")
+            if os.path.exists(project_yaml_path):
+                mtimes[project_yaml_path] = os.path.getmtime(project_yaml_path)
+
+    return mtimes
+
+
+def _should_reload_config(file_path: str, stored_mtime: float) -> bool:
+    """Check if a single config file's modification time has changed."""
+    try:
+        if not os.path.exists(file_path):
+            return False  # Handle missing files gracefully
+        current_mtime = os.path.getmtime(file_path)
+        return current_mtime != stored_mtime
+    except OSError:
+        # Handle permission errors or other filesystem issues
+        return False
+
+
+def _should_reload_config_bulk(current_mtimes: dict[str, float], stored_mtimes: dict[str, float]) -> bool:
+    """Compare current mtimes to stored mtimes to determine if reload is needed."""
+    # Check if any file was added or removed
+    if set(current_mtimes.keys()) != set(stored_mtimes.keys()):
+        return True
+
+    # Check if any file's mtime changed
+    for file_path, current_mtime in current_mtimes.items():
+        stored_mtime = stored_mtimes.get(file_path, 0)
+        if current_mtime != stored_mtime:
+            return True
+
+    return False
+
+
+def _reload_config(sb_config_path: str) -> dict | None:
+    """Reload switchboard.yaml, rebuild registry via _build_project_registry().
+    Returns new_registry or None on error.
+    """
+    try:
+        # Load switchboard config from specific path
+        if not os.path.exists(sb_config_path):
+            log.warning("Switchboard config file not found: %s", sb_config_path)
+            return None
+
+        with open(sb_config_path) as f:
+            sb_config = yaml.safe_load(f) or {}
+
+        if not sb_config:
+            log.warning("Empty switchboard config during reload")
+            return None
+
+        # Rebuild registry
+        new_registry = _build_project_registry(sb_config)
+
+        log.info("Config reloaded: %d projects loaded", len(new_registry))
+        return new_registry
+
+    except yaml.YAMLError as e:
+        log.warning("Failed to parse YAML config during reload: %s", e)
+        return None
+    except Exception as e:
+        log.warning("Config reload failed: %s", e)
+        return None
+
+
+def _reload_config_with_mtimes(sb_config_path: str) -> tuple[dict, dict] | None:
+    """Internal function for main loop that returns both registry and mtimes."""
+    new_registry = _reload_config(sb_config_path)
+    if new_registry is not None:
+        new_mtimes = _get_config_mtimes(sb_config_path, new_registry)
+        return (new_registry, new_mtimes)
+    return None
+
+
 def _run_pipeline_tool(
     tool_name: str, bead_id: str, project_name: str, repo_path: str,
     registry: dict, artifacts_dir: str,
@@ -554,6 +643,7 @@ def main():
     artifacts_dir = os.path.join(SWITCHBOARD_DIR, config.get("artifacts_dir", "artifacts"))
     worktrees_dir = config.get("worktrees_dir", "worktrees")
     agents_dir = os.path.join(SWITCHBOARD_DIR, config.get("agents_dir", "agents"))
+    config_reload_interval = config.get("config_reload_interval", 60)
 
     log_file = os.path.join(artifacts_dir, "switchboard.log")
     os.makedirs(artifacts_dir, exist_ok=True)
@@ -568,6 +658,12 @@ def main():
     log.info("Switchboard started (poll=%ds, max_workers=%d, projects=%s)",
              poll_interval, max_workers, list(registry.keys()))
 
+    # Initialize config reload tracking
+    sb_config_path = str(Path(SWITCHBOARD_DIR) / "switchboard.yaml")
+    config_mtimes = _get_config_mtimes(sb_config_path, registry)
+    reload_check_counter = 0
+    reload_check_cycles = max(1, config_reload_interval // poll_interval)
+
     active: dict[str, dict] = {}
     running = True
 
@@ -581,6 +677,19 @@ def main():
 
     while running:
         ready = get_ready_beads()
+
+        # Check for config reload every N poll cycles
+        reload_check_counter += 1
+        if reload_check_counter >= reload_check_cycles:
+            reload_check_counter = 0
+            current_mtimes = _get_config_mtimes(sb_config_path, registry)
+            if _should_reload_config_bulk(current_mtimes, config_mtimes):
+                reload_result = _reload_config_with_mtimes(sb_config_path)
+                if reload_result is not None:
+                    new_registry, new_mtimes = reload_result
+                    registry = new_registry
+                    config_mtimes = new_mtimes
+                    log.info("Registry updated with %d projects", len(registry))
 
         for bead in ready:
             if len(active) >= max_workers:
