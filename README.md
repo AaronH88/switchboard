@@ -23,6 +23,10 @@ Human (in project-a) → /intake "Fix the auth bug"
     6. Next step picks up
                          ↓
   Epic completes when all children close
+                         ↓
+  on_epic_complete hooks fire (if configured)
+    → runs a pipeline (e.g., final review + create PR)
+    → epic closes when hooks finish
 ```
 
 ## Prerequisites
@@ -97,7 +101,7 @@ projects:
 
 ### project.yaml (per-project)
 
-Each project configures its repos, pipelines, and coding tools:
+Each project configures its repos, pipelines, coding tools, and epic hooks:
 
 ```yaml
 repos:
@@ -112,17 +116,12 @@ repos:
 agents_dir: .claude/agents
 
 pipelines:
-  dev: [tdd, interface, tests, development, verify, review]
+  dev: [tdd, tests, development, verify, review]
   quick-fix: [development, verify]
-  review: [review]
-  docs: [docs-writer, verify]
-  deploy: [development, verify, tool:create-pr]  # Mix agents and tools
+  ship: [review, create-pr]
 
-# Shell commands that run as pipeline steps (no worktree, no AI)
-pipeline_tools:
-  create-pr:
-    command: ["gh", "pr", "create", "--title", "[switchboard] {epic_title}", "--head", "{branch}"]
-    cwd: repo
+# Epic-level hooks — runs when ALL children of an epic close
+on_epic_complete: ship
 
 coding_tools:
   claude:
@@ -143,16 +142,42 @@ Pipelines are named sequences of agents and/or tool steps:
 
 ```yaml
 pipelines:
-  dev:        [tdd, interface, tests, development, verify, review]  # Full TDD
-  quick-fix:  [development, verify]                                  # Fast bugfix
-  review:     [review]                                               # PR review
-  test-only:  [tdd, tests, verify]                                   # Add coverage
-  deploy:     [development, verify, tool:create-pr]                  # Code + PR
+  dev:        [tdd, tests, development, verify, review]  # Full TDD
+  quick-fix:  [development, verify]                       # Fast bugfix
+  review:     [review]                                    # PR review
+  test-only:  [tdd, tests, verify]                        # Add coverage
+  ship:       [review, create-pr]                         # Final review + PR
 ```
 
 Steps prefixed with `tool:` run shell commands (see [Pipeline tools](#pipeline-tools)). All other steps are agents.
 
 When you run `/intake`, it asks which pipeline to use.
+
+### Epic-level hooks
+
+When all children of an epic close, the daemon can automatically run a follow-up pipeline before closing the epic. Configure with `on_epic_complete`:
+
+```yaml
+# Single pipeline
+on_epic_complete: ship
+
+# Compose multiple pipelines (steps concatenated in order)
+on_epic_complete: [quality-gate, ship]
+```
+
+The hook steps become children of the epic with chained dependencies. The epic stays open until the hook pipeline completes. Hooks fire once per epic (tracked via `hooks_fired` metadata).
+
+**Example**: An epic with 3 molecules, each running the `dev` pipeline. After all 3 complete, the `ship` pipeline fires — one final review across all the work, then a PR is created. Only then does the epic close.
+
+```yaml
+pipelines:
+  dev: [tdd, tests, development, verify, review]
+  quality-gate: [verify, review]
+  ship: [create-pr]
+
+on_epic_complete: [quality-gate, ship]
+# When epic completes: verify → review → create-pr
+```
 
 ### Configuring coding tools
 
@@ -181,13 +206,10 @@ Template variables:
 
 ### Pipeline tools
 
-Pipeline steps prefixed with `tool:` run shell commands directly — no worktree, no AI agent. Useful for PR creation, notifications, deployments, or any scripted action.
+Pipeline steps prefixed with `tool:` run shell commands directly — no worktree, no AI agent. Useful for notifications, deployments, or any scripted action.
 
 ```yaml
 pipeline_tools:
-  create-pr:
-    command: ["gh", "pr", "create", "--title", "[switchboard] {epic_title}", "--head", "{branch}"]
-    cwd: repo
   notify:
     command: ["curl", "-X", "POST", "-d", "Done: {epic_title}", "https://hooks.slack.com/..."]
     cwd: project
@@ -224,13 +246,13 @@ You are a security scanning agent. ...
 
 | Agent | Role | Produces |
 |-------|------|----------|
-| `tdd` | Design test specs and acceptance criteria | Spec documents |
-| `interface` | Design types, APIs, component signatures | Type stubs |
+| `tdd` | Design test specs and acceptance criteria | Specs to stdout |
 | `tests` | Write runnable test code (red phase) | Test files |
 | `development` | Implement code to make tests pass | Implementation |
 | `integrate` | Resolve merge conflicts (auto-merge handles the rest) | Conflict resolutions |
-| `verify` | Run lint, typecheck, test suite | Pass/fail report |
-| `review` | Code review the feature branch | Review findings |
+| `verify` | Run lint, typecheck, test suite | Pass/fail to stdout |
+| `review` | Code review the feature branch | Findings to stdout |
+| `create-pr` | Create a PR using the repo's PR template | Pull request |
 
 ### Adding custom agents
 
@@ -245,6 +267,24 @@ echo '---\nname: docs-writer\ndescription: Write docs\n---\nYou are the Document
 **Global agents**: Add a `.md` file to switchboard's `agents/` directory. Available to all projects.
 
 Then reference it in a pipeline: `docs: [docs-writer, verify]`
+
+## TUI (Terminal UI)
+
+A retro switchboard-themed dashboard for watching the daemon work:
+
+```bash
+cd <project> && python -m switchboard.tui
+```
+
+Shows:
+- **Operator Panel** — active worker count, completed/failed/blocked stats
+- **Projects** — registered projects with signal lamps
+- **Patch Panel** — pipeline steps as horizontal boxes with signal lamps
+- **Active Lines** — running workers with bead ID, agent, repo, tool
+- **Party Line** — daemon log events in operator jargon
+- **Footer** — keybindings and daemon status
+
+Dependencies: `pip install textual watchfiles`
 
 ## Monitoring
 
@@ -263,6 +303,9 @@ cd <repo> && git log --oneline feature/<slug>
 
 # Bead status
 cd ~/.switchboard && bd list
+
+# TUI dashboard
+cd <project> && python -m switchboard.tui
 ```
 
 ## Adding a new project
@@ -291,3 +334,9 @@ Check `~/.switchboard/artifacts/logs/<bead-id>/stdout.log`. Common causes:
 ```bash
 cd ~/.switchboard && bd update <bead-id> --status=open --assignee=""
 ```
+
+### Epic hooks not firing
+Check that:
+- `on_epic_complete` in `project.yaml` references a valid pipeline name
+- The epic has the `project:` label matching the project name
+- The epic's `hooks_fired` metadata isn't already set to `"true"` (check with `bd show <epic-id> --long`)
