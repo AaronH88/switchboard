@@ -22,21 +22,21 @@ All previous agents' work has been merged into the feature branch. Your job is t
    - If `package.json` exists: `npm install && npm test && npm run lint`
    - If `Cargo.toml` exists: `cargo test && cargo clippy`
    - If `go.mod` exists: `go test ./... && golangci-lint run`
-4. Collect all results
-4. If failures: commit a `VERIFY_RESULTS.md` file with the errors, then exit with non-zero
+4. Collect all results and output them to stdout
+5. If failures: exit with non-zero status
 
 ## What You Produce
 
-- Pass/fail status for each quality gate
-- Error details for any failures in `VERIFY_RESULTS.md`
+- Pass/fail status for each quality gate — output to stdout only
 
 ## Rules
 
 - Run ALL checks, don't stop at first failure
 - Report exact error messages and file locations for failures
+- Do NOT commit markdown files (*.md) or result files to the repo — your output goes to stdout which is captured in the agent log
 - Work only in your assigned worktree
 - If any check fails, exit with non-zero status so the bead is retried or blocked
 
 ## Completion
 
-If all checks pass, exit successfully. If any check fails, commit the results file and exit with error.
+If all checks pass, exit successfully. If any check fails, exit with error. Do not commit any files.

@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -62,6 +63,7 @@ def _build_project_registry(sb_config: dict) -> dict:
             repo_path = repo.get("path", "")
             if not os.path.isabs(repo_path):
                 repo_path = os.path.join(project_path, repo_path)
+            repo_path = os.path.normpath(repo_path)
             repos_by_name[repo["name"]] = {
                 "path": repo_path,
                 "verify": repo.get("verify", ""),
@@ -396,6 +398,85 @@ def _resolve_tool_cwd(cwd_setting: str, repo_path: str, project_path: str) -> st
     return repo_path
 
 
+# --- Config Reloading Functions ---
+
+def _get_config_paths(sb_config_path: str, registry: dict) -> set[str]:
+    """Get all config file paths that should be watched."""
+    paths = set()
+    if os.path.exists(sb_config_path):
+        paths.add(os.path.abspath(sb_config_path))
+    for project_data in registry.values():
+        project_path = project_data.get("path")
+        if project_path:
+            p = os.path.join(project_path, "project.yaml")
+            if os.path.exists(p):
+                paths.add(os.path.abspath(p))
+    return paths
+
+
+def _reload_config(sb_config_path: str) -> dict | None:
+    """Reload switchboard.yaml and rebuild the project registry.
+    Returns new registry or None on error (keeps old config).
+    """
+    try:
+        if not os.path.exists(sb_config_path):
+            log.warning("Switchboard config not found: %s", sb_config_path)
+            return None
+        with open(sb_config_path) as f:
+            sb_config = yaml.safe_load(f) or {}
+        if not sb_config:
+            log.warning("Empty switchboard config during reload")
+            return None
+        new_registry = _build_project_registry(sb_config)
+        log.info("Config reloaded: %d projects loaded", len(new_registry))
+        return new_registry
+    except yaml.YAMLError as e:
+        log.warning("Failed to parse config during reload: %s", e)
+        return None
+    except Exception as e:
+        log.warning("Config reload failed: %s", e)
+        return None
+
+
+def _start_config_watcher(paths: set[str]) -> threading.Event:
+    """Start a background thread that watches config files for changes.
+    Returns an Event that gets set when any watched file changes.
+    """
+    changed_event = threading.Event()
+
+    def watcher():
+        try:
+            from watchfiles import watch, Change
+            watch_dirs = {os.path.dirname(p) for p in paths}
+            watch_names = {os.path.basename(p) for p in paths}
+            for changes in watch(
+                *watch_dirs,
+                watch_filter=lambda change, path: os.path.basename(path) in watch_names,
+                raise_interrupt=False,
+            ):
+                for change_type, change_path in changes:
+                    log.info("Config change detected: %s (%s)", change_path, change_type.name)
+                changed_event.set()
+        except ImportError:
+            log.warning("watchfiles not installed — falling back to 60s mtime polling")
+            stored_mtimes = {p: os.path.getmtime(p) for p in paths if os.path.exists(p)}
+            while True:
+                time.sleep(60)
+                for p in paths:
+                    if os.path.exists(p):
+                        current = os.path.getmtime(p)
+                        if current != stored_mtimes.get(p, 0):
+                            stored_mtimes[p] = current
+                            log.info("Config change detected (poll): %s", p)
+                            changed_event.set()
+        except Exception as e:
+            log.warning("Config watcher failed: %s", e)
+
+    thread = threading.Thread(target=watcher, daemon=True, name="config-watcher")
+    thread.start()
+    return changed_event
+
+
 def _run_pipeline_tool(
     tool_name: str, bead_id: str, project_name: str, repo_path: str,
     registry: dict, artifacts_dir: str,
@@ -483,12 +564,14 @@ def claim_bead(bead_id: str) -> bool:
 
 
 def close_bead(bead_id: str) -> None:
-    subprocess.run(
-        ["bd", "close", bead_id],
+    result = subprocess.run(
+        ["bd", "close", "--force", bead_id],
         capture_output=True,
         text=True,
         cwd=SWITCHBOARD_DIR,
     )
+    if result.returncode != 0:
+        log.warning("Failed to close %s: %s", bead_id, result.stderr.strip())
 
 
 def requeue_bead(bead_id: str, attempt: int) -> None:
@@ -554,7 +637,6 @@ def main():
     artifacts_dir = os.path.join(SWITCHBOARD_DIR, config.get("artifacts_dir", "artifacts"))
     worktrees_dir = config.get("worktrees_dir", "worktrees")
     agents_dir = os.path.join(SWITCHBOARD_DIR, config.get("agents_dir", "agents"))
-
     log_file = os.path.join(artifacts_dir, "switchboard.log")
     os.makedirs(artifacts_dir, exist_ok=True)
     file_handler = logging.FileHandler(log_file)
@@ -567,6 +649,9 @@ def main():
 
     log.info("Switchboard started (poll=%ds, max_workers=%d, projects=%s)",
              poll_interval, max_workers, list(registry.keys()))
+
+    sb_config_path = str(Path(SWITCHBOARD_DIR) / "switchboard.yaml")
+    config_changed = _start_config_watcher(_get_config_paths(sb_config_path, registry))
 
     active: dict[str, dict] = {}
     running = True
@@ -581,6 +666,13 @@ def main():
 
     while running:
         ready = get_ready_beads()
+
+        if config_changed.is_set():
+            config_changed.clear()
+            new_registry = _reload_config(sb_config_path)
+            if new_registry is not None:
+                registry = new_registry
+                config_changed = _start_config_watcher(_get_config_paths(sb_config_path, registry))
 
         for bead in ready:
             if len(active) >= max_workers:

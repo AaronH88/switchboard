@@ -20,19 +20,18 @@ Your assignment details and feature context are provided at the bottom of this p
 
 ## What You Produce
 
-- Acceptance criteria document in the target repo
-- Test case specifications (inputs, expected outputs, edge cases)
+- Test specifications, acceptance criteria, and edge cases — output to stdout only
 
 ## Rules
 
 - Do NOT write implementation code
 - Do NOT write runnable test code (that is the tests agent's job)
+- Do NOT commit markdown files (*.md) to the repo — your output goes to stdout which is captured in the agent log
 - Work only in your assigned worktree
-- Commit all files with a descriptive message
 - Focus on WHAT to test, not HOW to implement
 - Consider happy paths, error cases, edge cases, and boundary conditions
 - Reference the repo's existing test patterns for context
 
 ## Completion
 
-When done, commit your work and exit. The agent router will close your bead.
+When done, exit. Do not commit any files. The agent router will close your bead.
