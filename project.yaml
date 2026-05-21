@@ -1,0 +1,19 @@
+repos:
+  - name: switchboard
+    path: .
+    verify: "python -c 'import agent_router.run; print(\"ok\")'"
+
+pipelines:
+  quick-fix: [development, verify]
+  dev: [tdd, tests, development, verify, review, tool:create-pr]
+
+pipeline_tools:
+  create-pr:
+    command: ["gh", "pr", "create", "--title", "{epic_title}", "--body", "Automated PR from switchboard pipeline.\n\nEpic: {epic_id}\nBranch: {branch}", "--head", "{branch}", "--base", "main"]
+    cwd: repo
+
+coding_tools:
+  claude:
+    command: ["claude", "-p", "{prompt_file}", "--output-format", "text", "--dangerously-skip-permissions"]
+
+default_tool: claude
