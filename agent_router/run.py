@@ -483,12 +483,14 @@ def claim_bead(bead_id: str) -> bool:
 
 
 def close_bead(bead_id: str) -> None:
-    subprocess.run(
-        ["bd", "close", bead_id],
+    result = subprocess.run(
+        ["bd", "close", "--force", bead_id],
         capture_output=True,
         text=True,
         cwd=SWITCHBOARD_DIR,
     )
+    if result.returncode != 0:
+        log.warning("Failed to close %s: %s", bead_id, result.stderr.strip())
 
 
 def requeue_bead(bead_id: str, attempt: int) -> None:
