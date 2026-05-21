@@ -5,12 +5,7 @@ repos:
 
 pipelines:
   quick-fix: [development, verify]
-  dev: [tdd, tests, development, verify, review, tool:create-pr]
-
-pipeline_tools:
-  create-pr:
-    command: ["gh", "pr", "create", "--title", "{epic_title}", "--body", "Automated PR from switchboard pipeline.\n\nEpic: {epic_id}\nBranch: {branch}", "--head", "{branch}", "--base", "main"]
-    cwd: repo
+  dev: [tdd, tests, development, verify, review, create-pr]
 
 coding_tools:
   claude:
