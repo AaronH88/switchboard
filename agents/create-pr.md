@@ -29,14 +29,15 @@ All previous agents' work (TDD, tests, implementation, verification, review) has
    - Replace placeholder text, check relevant checkboxes, remove irrelevant options
    - Be specific — reference actual files, functions, and behaviors
    - Do NOT fabricate test results or claim tests pass unless you verified it
-5. Write the PR body to a temp file and create the PR:
+5. Extract the feature branch name from your assignment context (look for "Feature branch:" line)
+6. Write the PR body to a temp file and create the PR:
    ```bash
    cat > /tmp/pr-body.md <<'PRBODY'
    <filled-in template>
    PRBODY
-   gh pr create --title "<title from assignment context>" --body-file /tmp/pr-body.md --base main
+   gh pr create --title "<title>" --body-file /tmp/pr-body.md --head <feature-branch> --base main
    ```
-6. If the PR already exists, update it instead:
+7. If the PR already exists, update it instead:
    ```bash
    gh pr edit --body-file /tmp/pr-body.md
    ```

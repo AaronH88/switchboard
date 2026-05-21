@@ -5,7 +5,10 @@ repos:
 
 pipelines:
   quick-fix: [development, verify]
-  dev: [tdd, tests, development, verify, review, create-pr]
+  dev: [tdd, tests, development, verify, review]
+  ship: [review, create-pr]
+
+on_epic_complete: ship
 
 coding_tools:
   claude:

@@ -78,6 +78,7 @@ def _build_project_registry(sb_config: dict) -> dict:
             "pipelines": local_config.get("pipelines", {}),
             "agents_dir": agents_dir,
             "pipeline_tools": local_config.get("pipeline_tools", {}),
+            "on_epic_complete": local_config.get("on_epic_complete"),
         }
     return registry
 
@@ -135,6 +136,181 @@ def _check_epic_completion(bead_id: str) -> bool:
         return all(d.get("status") == "closed" for d in dependents)
     except (json.JSONDecodeError, IndexError):
         return False
+
+
+def _should_fire_epic_hooks(bead_id: str, project_entry: dict) -> bool:
+    """Check if epic hooks should fire: configured + not already fired."""
+    pipeline_name = project_entry.get("on_epic_complete")
+    if not pipeline_name:
+        return False
+    if pipeline_name not in project_entry.get("pipelines", {}):
+        log.warning("on_epic_complete references unknown pipeline '%s'", pipeline_name)
+        return False
+    result = subprocess.run(
+        ["bd", "show", bead_id, "--json"],
+        capture_output=True, text=True, cwd=SWITCHBOARD_DIR,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+        bead = data[0] if isinstance(data, list) else data
+        metadata = bead.get("metadata") or {}
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata) if metadata.strip() else {}
+        return metadata.get("hooks_fired") != "true"
+    except (json.JSONDecodeError, IndexError):
+        return False
+
+
+def _fire_epic_hooks(
+    bead_id: str, project_name: str, project_entry: dict, registry: dict
+) -> None:
+    """Create hook pipeline beads as children of the epic."""
+    pipeline_name = project_entry["on_epic_complete"]
+    steps = project_entry["pipelines"][pipeline_name]
+    log.info("Firing epic hooks for %s (pipeline: %s): %s", bead_id, pipeline_name, steps)
+
+    result = subprocess.run(
+        ["bd", "show", bead_id, "--json"],
+        capture_output=True, text=True, cwd=SWITCHBOARD_DIR,
+    )
+    if result.returncode != 0:
+        log.error("Failed to read epic %s for hooks", bead_id)
+        return
+
+    data = json.loads(result.stdout)
+    epic = data[0] if isinstance(data, list) else data
+    epic_title = epic.get("title", "")
+
+    repo_name = None
+    for dep in epic.get("dependents") or []:
+        dep_id = dep.get("id", "")
+        if dep_id:
+            dep_result = subprocess.run(
+                ["bd", "show", dep_id, "--json"],
+                capture_output=True, text=True, cwd=SWITCHBOARD_DIR,
+            )
+            if dep_result.returncode == 0:
+                dep_data = json.loads(dep_result.stdout)
+                dep_bead = dep_data[0] if isinstance(dep_data, list) else dep_data
+                for label in dep_bead.get("labels") or []:
+                    if label.startswith("repo:") and not repo_name:
+                        repo_name = label.split(":", 1)[1]
+                if repo_name:
+                    break
+
+    if not repo_name:
+        repo_name = list(project_entry.get("repos", {}).keys())[0] if project_entry.get("repos") else "unknown"
+
+    repo_path = _resolve_repo_path(project_name, repo_name, registry)
+    branch = _get_branch_name(repo_path) if repo_path else ""
+
+    nodes = [{"key": "epic-ref", "title": epic_title, "type": "epic"}]
+    edges = []
+    prev_key = None
+
+    for step in steps:
+        is_tool = step.startswith("tool:")
+        step_name = step.split(":", 1)[1] if is_tool else step
+        key = f"hook-{step_name}"
+        label_type = f"tool:{step_name}" if is_tool else f"agent:{step_name}"
+
+        desc = (
+            f"Epic hook step: {step_name}\n\n"
+            f"Epic: {epic_title} (#{bead_id})\n"
+            f"Feature branch: {branch}\n"
+            f"Project: {project_name}\n"
+            f"Repo: {repo_name}\n"
+        )
+
+        nodes.append({
+            "key": key,
+            "title": f"{step_name.capitalize()}: {epic_title}",
+            "type": "task",
+            "labels": [label_type, f"repo:{repo_name}", f"project:{project_name}"],
+            "description": desc,
+        })
+
+        edges.append({"from_key": key, "to_key": "epic-ref", "type": "parent"})
+        if prev_key:
+            edges.append({"from_key": key, "to_key": prev_key, "type": "blocks"})
+        prev_key = key
+
+    graph = {"nodes": nodes, "edges": edges}
+    graph_file = Path(SWITCHBOARD_DIR) / "artifacts" / f"epic-hooks-{bead_id}.json"
+    graph_file.parent.mkdir(parents=True, exist_ok=True)
+    graph_file.write_text(json.dumps(graph, indent=2))
+
+    # The graph creates a new "epic-ref" node — we need to use the real epic instead.
+    # Use --parent on individual creates, or remap after creation.
+    # Simpler: create beads individually with --parent pointing to the real epic.
+    graph_file.unlink()
+
+    prev_bead_id = None
+    for step in steps:
+        is_tool = step.startswith("tool:")
+        step_name = step.split(":", 1)[1] if is_tool else step
+        label_type = f"tool:{step_name}" if is_tool else f"agent:{step_name}"
+
+        desc = (
+            f"Epic hook step: {step_name}\n\n"
+            f"Epic: {epic_title} (#{bead_id})\n"
+            f"Feature branch: {branch}\n"
+            f"Project: {project_name}\n"
+            f"Repo: {repo_name}\n"
+        )
+
+        cmd = [
+            "bd", "create",
+            "--title", f"{step_name.capitalize()}: {epic_title}",
+            "--description", desc,
+            "--type", "task",
+            "--priority", "2",
+            "--add-label", label_type,
+            "--add-label", f"repo:{repo_name}",
+            "--add-label", f"project:{project_name}",
+            "--parent", bead_id,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=SWITCHBOARD_DIR)
+        if result.returncode != 0:
+            log.error("Failed to create hook bead for %s: %s", step_name, result.stderr)
+            return
+
+        new_bead_id = None
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if line.startswith("Created "):
+                parts = line.split()
+                if len(parts) >= 2:
+                    new_bead_id = parts[1]
+                    break
+            elif not line.startswith("Created") and "-" in line:
+                new_bead_id = line.split()[0] if line.split() else None
+                break
+
+        if not new_bead_id:
+            for line in result.stdout.strip().splitlines():
+                stripped = line.strip()
+                if stripped and "-" in stripped:
+                    new_bead_id = stripped.split()[0]
+                    break
+
+        if new_bead_id and prev_bead_id:
+            subprocess.run(
+                ["bd", "dep", "add", new_bead_id, prev_bead_id],
+                capture_output=True, text=True, cwd=SWITCHBOARD_DIR,
+            )
+
+        if new_bead_id:
+            prev_bead_id = new_bead_id
+            log.info("Created hook bead %s (%s) for epic %s", new_bead_id, step_name, bead_id)
+
+    subprocess.run(
+        ["bd", "update", bead_id, "--set-metadata", json.dumps({"hooks_fired": "true"})],
+        capture_output=True, text=True, cwd=SWITCHBOARD_DIR,
+    )
 
 
 def _has_open_dependencies(bead_id: str) -> bool:
@@ -403,8 +579,13 @@ def main():
 
             if bead.get("issue_type") == "epic":
                 if _check_epic_completion(bead_id):
-                    close_bead(bead_id)
-                    log.info("Epic completed: %s (%s)", bead_id, bead.get("title", ""))
+                    project_name = _extract_label(bead, "project:")
+                    project_entry = registry.get(project_name, {}) if project_name else {}
+                    if _should_fire_epic_hooks(bead_id, project_entry):
+                        _fire_epic_hooks(bead_id, project_name, project_entry, registry)
+                    else:
+                        close_bead(bead_id)
+                        log.info("Epic completed: %s (%s)", bead_id, bead.get("title", ""))
                 continue
 
             agent = _extract_label(bead, "agent:")
